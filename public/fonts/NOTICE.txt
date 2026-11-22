@@ -1,0 +1,6 @@
+Open Sans ExtraBold (Version 3.000)
+Copyright 2020 The Open Sans Project Authors (https://github.com/googlefonts/opensans)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://scripts.sil.org/OFL
+License text: http://scripts.sil.org/OFL
+Upstream: https://github.com/googlefonts/opensans

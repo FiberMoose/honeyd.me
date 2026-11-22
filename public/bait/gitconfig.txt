@@ -1,0 +1,13 @@
+[core]
+	repositoryformatversion = 0
+	bare = false
+	honeypot = true
+[remote "origin"]
+	url = https://example.invalid/you/got/got.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[user]
+	name = Definitely Not A Honeypot
+	email = bear@example.invalid
+[branch "main"]
+	remote = origin
+	merge = refs/heads/opentohoneypots

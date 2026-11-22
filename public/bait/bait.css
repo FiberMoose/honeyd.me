@@ -1,0 +1,62 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #1b1f23;
+  color: #e8eaed;
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding: 20px;
+}
+.box {
+  width: 100%;
+  max-width: 420px;
+  background: #24292e;
+  border: 1px solid #3a4048;
+  border-radius: 12px;
+  padding: 28px;
+  text-align: center;
+}
+.roastpage .box { max-width: 620px; }
+.logo { font-size: 48px; }
+h1 { margin: 8px 0; font-size: 22px; overflow-wrap: anywhere; }
+.sub, .fine { color: #9aa0a6; font-size: 14px; }
+form { text-align: left; margin-top: 18px; }
+label { display: block; font-size: 14px; margin-bottom: 14px; color: #c8ccd0; }
+input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 9px 10px;
+  font: inherit;
+  color: #e8eaed;
+  background: #1b1f23;
+  border: 1px solid #3a4048;
+  border-radius: 6px;
+}
+button {
+  width: 100%;
+  padding: 10px;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: #467031;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.roast { margin-top: 16px; padding: 12px; border-left: 3px solid #8244cb; background: #1b1f23; text-align: left; }
+.roastpage h1 { font: italic 700 28px/1.2 Georgia, "Times New Roman", serif; }
+.big { font: italic 21px/1.3 Georgia, "Times New Roman", serif; color: #f4a261; }
+.term {
+  text-align: left;
+  background: #0d1117;
+  color: #7ee787;
+  padding: 14px;
+  border-radius: 8px;
+  min-height: 130px;
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+a { color: #71b7fb; }
