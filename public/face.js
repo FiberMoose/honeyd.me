@@ -95,11 +95,9 @@ const Face = (() => {
     const area = bitmap.width * bitmap.height;
     faces = faces.filter((f) => (f.w * f.h) / area >= MIN_AREA);
     if (!faces.length) throw new Validate.Rejected("Was there a face in that photo? Try a different one pls.");
-    const [best, second] = faces;
-    if (second && second.w * second.h > 0.5 * best.w * best.h) {
-      throw new Validate.Rejected('Too many faces. This frame is strictly a solo honeypot.');
-    }
-    return best;
+    // more than one face is fine — we frame the biggest one
+    faces.sort((p, q) => (q.w * q.h) - (p.w * p.h));
+    return faces[0];
   }
 
   // view {zoom, panX, panY} that puts the eyes a bit above centre with headshot framing
