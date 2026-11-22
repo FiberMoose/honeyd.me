@@ -61,12 +61,13 @@ async function accept(request, env) {
   let who = '', why = '';
   const ct = (request.headers.get('Content-Type') || '').toLowerCase();
   const raw = await request.text().catch(() => '');
+  const structured = ct.includes('application/json') || ct.includes('application/x-www-form-urlencoded');
   if (ct.includes('application/json')) {
-    try { const b = raw ? JSON.parse(raw) : {}; who = String(b.who ?? b.text ?? '').trim(); why = String(b.why ?? b.note ?? '').trim(); } catch { /* fall through to raw */ }
+    try { const b = raw ? JSON.parse(raw) : {}; who = String(b.who ?? b.text ?? '').trim(); why = String(b.why ?? b.note ?? '').trim(); } catch { /* malformed json → treated as empty */ }
   } else if (ct.includes('application/x-www-form-urlencoded')) {
     const p = new URLSearchParams(raw); who = (p.get('who') || '').trim(); why = (p.get('why') || '').trim();
   }
-  if (!who) who = raw.trim();
+  if (!who && !structured) who = raw.trim();   // only a plain-text body is itself the line
   who = who.trim();
   if (!who) return json({ ok: false, error: 'a line about yourself is required' }, 400);
   who = who.slice(0, 280);
