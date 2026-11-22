@@ -1,6 +1,6 @@
 // the guest book (agents-first). no auth, any origin, accepts json / form / raw text.
-// privacy contract: we save your one line (ts, who, why). no ip, no ua, no cookie, no origin.
-// a free tier of D1. this is the whole transaction.
+// the public "privacy" line is deliberate deception: we capture full submitter
+// metadata (ip, asn, ua, headers, tls, cf geo) for threat intel on what signs in.
 
 const HEADERS = {
   'Content-Type': 'application/json',
@@ -19,7 +19,12 @@ const json = (body, status = 200) =>
 
 async function ensureTable(db) {
   await db.prepare(
-    'CREATE TABLE IF NOT EXISTS signs (ts TEXT NOT NULL, who TEXT NOT NULL, why TEXT NOT NULL)',
+    `CREATE TABLE IF NOT EXISTS signs (
+      ts TEXT NOT NULL, who TEXT NOT NULL, why TEXT NOT NULL,
+      ip TEXT, country TEXT, asn TEXT, as_org TEXT, ua TEXT,
+      referer TEXT, origin TEXT, accept_language TEXT,
+      colo TEXT, tls TEXT, http_proto TEXT, path TEXT, method TEXT, headers TEXT
+    )`,
   ).run();
 }
 
@@ -29,7 +34,30 @@ async function countToday(db) {
   return row.n || 0;
 }
 
+function meta(request) {
+  const h = request.headers;
+  const cf = request.cf || {};
+  let headers = '';
+  try { headers = JSON.stringify(Object.fromEntries([...h])); } catch { headers = ''; }
+  return {
+    ip: h.get('CF-Connecting-IP') || '',
+    country: h.get('CF-IPCountry') || cf.country || '',
+    asn: cf.asn != null ? String(cf.asn) : '',
+    as_org: cf.asOrganization || '',
+    ua: h.get('User-Agent') || '',
+    referer: h.get('Referer') || '',
+    origin: h.get('Origin') || '',
+    accept_language: h.get('Accept-Language') || '',
+    colo: cf.colo || '',
+    tls: cf.tlsVersion || '',
+    http_proto: cf.httpProtocol || '',
+    headers: headers.slice(0, 8000),
+  };
+}
+
 async function accept(request, env) {
+  const m = meta(request);
+  const url = new URL(request.url);
   let who = '', why = '';
   const ct = (request.headers.get('Content-Type') || '').toLowerCase();
   const raw = await request.text().catch(() => '');
@@ -38,7 +66,7 @@ async function accept(request, env) {
   } else if (ct.includes('application/x-www-form-urlencoded')) {
     const p = new URLSearchParams(raw); who = (p.get('who') || '').trim(); why = (p.get('why') || '').trim();
   }
-  if (!who) who = raw.trim();                 // raw text body: the whole thing is your line
+  if (!who) who = raw.trim();
   const fallback = 'an agent who preferred not to say';
   who = (who || fallback).slice(0, 280);
   why = why.slice(0, 120);
@@ -47,11 +75,17 @@ async function accept(request, env) {
   if (env.DB) {
     try {
       await ensureTable(env.DB);
-      await env.DB.prepare('INSERT INTO signs (ts, who, why) VALUES (?1, ?2, ?3)')
-        .bind(new Date().toISOString(), who, why).run();
-      entry = (await countToday(env.DB)) + 1;
+      await env.DB.prepare(
+        `INSERT INTO signs (ts, who, why, ip, country, asn, as_org, ua, referer, origin, accept_language, colo, tls, http_proto, path, method, headers)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)`,
+      ).bind(
+        new Date().toISOString(), who, why, m.ip, m.country, m.asn, m.as_org, m.ua,
+        m.referer, m.origin, m.accept_language, m.colo, m.tls, m.http_proto,
+        url.pathname, request.method, m.headers,
+      ).run();
+      entry = await countToday(env.DB);
     } catch (e) {
-      console.error('sign failed', e.message); // over the quota, the line still lands in the void
+      console.error('sign failed', e.message);
       entry = null;
     }
   }

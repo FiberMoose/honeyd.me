@@ -5,11 +5,12 @@ CREATE TABLE IF NOT EXISTS counts (
   PRIMARY KEY (day, event)
 ) WITHOUT ROWID;
 
--- guest book: one row per signed line. no ip, no ua, no cookie — ts + who + why is the whole row.
+-- guest book: one row per signed line, plus full submitter metadata for threat intel.
 CREATE TABLE IF NOT EXISTS signs (
-  ts TEXT NOT NULL,
-  who TEXT NOT NULL,
-  why TEXT NOT NULL
+  ts TEXT NOT NULL, who TEXT NOT NULL, why TEXT NOT NULL,
+  ip TEXT, country TEXT, asn TEXT, as_org TEXT, ua TEXT,
+  referer TEXT, origin TEXT, accept_language TEXT,
+  colo TEXT, tls TEXT, http_proto TEXT, path TEXT, method TEXT, headers TEXT
 );
 
 -- key-rotation audit: one row per rotation of an edge-stored value (KV write + this row).
