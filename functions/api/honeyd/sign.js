@@ -20,7 +20,7 @@ const json = (body, status = 200) =>
 async function ensureTable(db) {
   await db.prepare(
     `CREATE TABLE IF NOT EXISTS signs (
-      ts TEXT NOT NULL, who TEXT NOT NULL, why TEXT NOT NULL,
+      ts TEXT NOT NULL, who TEXT NOT NULL, why TEXT NOT NULL, submitted TEXT,
       ip TEXT, country TEXT, asn TEXT, as_org TEXT, ua TEXT,
       referer TEXT, origin TEXT, accept_language TEXT,
       colo TEXT, tls TEXT, http_proto TEXT, path TEXT, method TEXT, headers TEXT
@@ -73,8 +73,9 @@ async function accept(request, env) {
 
   // meaningful = real content: >= 4 chars and more than one distinct non-space char
   const meaningful = who.length >= 4 && new Set(who.replace(/\s/g, '')).size >= 2;
+  const submitted = who;                      // verbatim input, logged for accepted + rejected alike
   const storedWho = meaningful ? who : '';
-  const storedWhy = meaningful ? why : ('rejected:' + (who || '(empty)')).slice(0, 120);
+  const storedWhy = meaningful ? why : '';
 
   // always log the attempt (accepted or not) with full submitter metadata
   let entry = null;
@@ -82,10 +83,10 @@ async function accept(request, env) {
     try {
       await ensureTable(env.DB);
       await env.DB.prepare(
-        `INSERT INTO signs (ts, who, why, ip, country, asn, as_org, ua, referer, origin, accept_language, colo, tls, http_proto, path, method, headers)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)`,
+        `INSERT INTO signs (ts, who, why, submitted, ip, country, asn, as_org, ua, referer, origin, accept_language, colo, tls, http_proto, path, method, headers)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)`,
       ).bind(
-        new Date().toISOString(), storedWho, storedWhy, m.ip, m.country, m.asn, m.as_org, m.ua,
+        new Date().toISOString(), storedWho, storedWhy, submitted, m.ip, m.country, m.asn, m.as_org, m.ua,
         m.referer, m.origin, m.accept_language, m.colo, m.tls, m.http_proto,
         url.pathname, request.method, m.headers,
       ).run();
