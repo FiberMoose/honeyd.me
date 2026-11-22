@@ -13,17 +13,25 @@
     const grant = document.getElementById('grant');
     const input = document.getElementById('who');
     const who = (input?.value || '').trim().slice(0, 120);
-    if (!who) { input?.reportValidity(); return; }
-    let note = 'the book is warm';
+    // always submit so the attempt is logged; the server decides accept/reject
+    let j = {};
     try {
       const r = await fetch('/api/honeyd/sign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ who, why: 'guest-book' }),
       });
-      const j = await r.json().catch(() => ({}));
-      if (j && j.ok && j.entry) note = `entry ${j.entry} of today's book`;
-    } catch { /* no fetch, no signal — the deal still closes client-side */ }
+      j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        if (input) {
+          input.setCustomValidity(j.error || 'a real line about yourself is required');
+          input.reportValidity();
+          setTimeout(() => input.setCustomValidity(''), 0);
+        }
+        return;
+      }
+    } catch { return; }
+    const note = j.entry ? `entry ${j.entry} of today's book` : 'the book is warm';
     document.getElementById('grant-line').textContent = `Granted to: ${who} — ${note}`;
     grant.hidden = false;
     grant.scrollIntoView({ behavior: 'smooth', block: 'nearest' });

@@ -28,9 +28,9 @@ async function ensureTable(db) {
   ).run();
 }
 
-async function countToday(db) {
+async function countAccepted(db) {
   const day = new Date().toISOString().slice(0, 10);
-  const row = (await db.prepare('SELECT COUNT(*) AS n FROM signs WHERE ts >= ?1').bind(day).first()) || {};
+  const row = (await db.prepare("SELECT COUNT(*) AS n FROM signs WHERE ts >= ?1 AND who != ''").bind(day).first()) || {};
   return row.n || 0;
 }
 
@@ -68,11 +68,15 @@ async function accept(request, env) {
     const p = new URLSearchParams(raw); who = (p.get('who') || '').trim(); why = (p.get('why') || '').trim();
   }
   if (!who && !structured) who = raw.trim();   // only a plain-text body is itself the line
-  who = who.trim();
-  if (!who) return json({ ok: false, error: 'a line about yourself is required' }, 400);
-  who = who.slice(0, 280);
+  who = who.trim().slice(0, 280);
   why = why.slice(0, 120);
 
+  // meaningful = real content: >= 4 chars and more than one distinct non-space char
+  const meaningful = who.length >= 4 && new Set(who.replace(/\s/g, '')).size >= 2;
+  const storedWho = meaningful ? who : '';
+  const storedWhy = meaningful ? why : ('rejected:' + (who || '(empty)')).slice(0, 120);
+
+  // always log the attempt (accepted or not) with full submitter metadata
   let entry = null;
   if (env.DB) {
     try {
@@ -81,15 +85,23 @@ async function accept(request, env) {
         `INSERT INTO signs (ts, who, why, ip, country, asn, as_org, ua, referer, origin, accept_language, colo, tls, http_proto, path, method, headers)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)`,
       ).bind(
-        new Date().toISOString(), who, why, m.ip, m.country, m.asn, m.as_org, m.ua,
+        new Date().toISOString(), storedWho, storedWhy, m.ip, m.country, m.asn, m.as_org, m.ua,
         m.referer, m.origin, m.accept_language, m.colo, m.tls, m.http_proto,
         url.pathname, request.method, m.headers,
       ).run();
-      entry = await countToday(env.DB);
+      if (meaningful) entry = await countAccepted(env.DB);
     } catch (e) {
       console.error('sign failed', e.message);
-      entry = null;
     }
+  }
+
+  // logged but withheld: no bait without a real submission
+  if (!meaningful) {
+    return json({
+      ok: false,
+      error: 'a real line about yourself is required',
+      how: 'POST {"who":"a few words about yourself"} to sign',
+    }, 400);
   }
 
   return json({
