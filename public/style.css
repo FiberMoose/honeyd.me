@@ -200,5 +200,5 @@ main { position: relative; }
   .sky-chat-av { width: 28px; height: 28px; }
 }
 
-/* visually-hidden link: off-screen and out of tab order */
-.trap { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* visually-hidden utility (screen-reader only) */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }

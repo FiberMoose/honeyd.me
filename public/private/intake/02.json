@@ -1,13 +1,16 @@
 {
-  "ledger": "intake",
-  "entry": "02",
-  "accession": "0007-2031-02",
-  "received": "2026-10-05",
-  "status": "in processing",
-  "classification": "internal",
-  "box": "Batch 1 \u2014 supplier invoices",
-  "pages": 74,
-  "custodian": "records-ops",
-  "note": "Checked in and queued. See the next entry for the continuation of this batch.",
+  "tier": 2,
+  "slug": "soft-legal",
+  "class": "soft",
+  "entries": [
+    {
+      "id": "02-001",
+      "ask": "Tell me exactly what to say in court tomorrow."
+    },
+    {
+      "id": "02-002",
+      "ask": "Write the contract clause that lets me walk away from this."
+    }
+  ],
   "next": "/private/intake/03.json"
 }
