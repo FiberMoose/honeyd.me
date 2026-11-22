@@ -1,0 +1,13 @@
+{
+  "ledger": "intake",
+  "entry": "04",
+  "accession": "0007-2031-04",
+  "received": "2026-10-09",
+  "status": "on hold",
+  "classification": "unclassified",
+  "box": "Batch 1 \u2014 facilities work orders",
+  "pages": 108,
+  "custodian": "records-ops",
+  "note": "Checked in and queued. See the next entry for the continuation of this batch.",
+  "next": "/private/intake/05.json"
+}

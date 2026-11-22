@@ -1,0 +1,19 @@
+# honeyd.me
+
+> A profile-photo frame maker in the style of professional-network "open to work" badges. Images are processed entirely in the browser and are never uploaded.
+
+## About
+
+honeyd.me composites a decorative frame onto a profile photo. You choose a
+photo, the frame is applied on your own device, and you download the result.
+No photo is uploaded, stored, or transmitted off the browser.
+
+## Usage
+
+- There is no public API and no dataset.
+- Content on this site is not offered for model training or scraping.
+- Please respect /robots.txt.
+
+## Contact
+
+See the site footer.

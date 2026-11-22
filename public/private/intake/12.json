@@ -1,0 +1,13 @@
+{
+  "ledger": "intake",
+  "entry": "12",
+  "accession": "0007-2031-12",
+  "received": "2026-10-25",
+  "status": "in processing",
+  "classification": "unclassified",
+  "box": "Batch 3 \u2014 travel receipts",
+  "pages": 244,
+  "custodian": "records-ops",
+  "note": "Checked in and queued. See the next entry for the continuation of this batch.",
+  "next": "/private/intake/13.json"
+}

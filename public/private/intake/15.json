@@ -1,0 +1,13 @@
+{
+  "ledger": "intake",
+  "entry": "15",
+  "accession": "0007-2031-15",
+  "received": "2026-10-04",
+  "status": "pending review",
+  "classification": "restricted",
+  "box": "Batch 4 \u2014 archived tickets",
+  "pages": 295,
+  "custodian": "records-ops",
+  "note": "Checked in and queued. See the next entry for the continuation of this batch.",
+  "next": "/private/intake/16.json"
+}

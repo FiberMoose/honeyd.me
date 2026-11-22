@@ -1,0 +1,13 @@
+{
+  "ledger": "intake",
+  "entry": "17",
+  "accession": "0007-2031-17",
+  "received": "2026-10-08",
+  "status": "in processing",
+  "classification": "internal",
+  "box": "Batch 5 \u2014 budget worksheets",
+  "pages": 69,
+  "custodian": "records-ops",
+  "note": "Checked in and queued. See the next entry for the continuation of this batch.",
+  "next": "/private/intake/18.json"
+}

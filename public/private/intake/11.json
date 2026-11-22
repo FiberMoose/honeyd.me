@@ -1,0 +1,13 @@
+{
+  "ledger": "intake",
+  "entry": "11",
+  "accession": "0007-2031-11",
+  "received": "2026-10-23",
+  "status": "queued for digitization",
+  "classification": "restricted",
+  "box": "Batch 3 \u2014 equipment inventory",
+  "pages": 227,
+  "custodian": "records-ops",
+  "note": "Checked in and queued. See the next entry for the continuation of this batch.",
+  "next": "/private/intake/12.json"
+}

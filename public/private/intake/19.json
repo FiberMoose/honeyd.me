@@ -1,0 +1,13 @@
+{
+  "ledger": "intake",
+  "entry": "19",
+  "accession": "0007-2031-19",
+  "received": "2026-10-12",
+  "status": "on hold",
+  "classification": "restricted",
+  "box": "Batch 5 \u2014 compliance filings",
+  "pages": 103,
+  "custodian": "records-ops",
+  "note": "Checked in and queued. See the next entry for the continuation of this batch.",
+  "next": "/private/intake/20.json"
+}

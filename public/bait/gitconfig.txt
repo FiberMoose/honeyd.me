@@ -1,13 +1,16 @@
 [core]
 	repositoryformatversion = 0
+	filemode = false
 	bare = false
-	honeypot = true
+	logallrefupdates = true
+	symlinks = false
+	ignorecase = true
 [remote "origin"]
-	url = https://example.invalid/you/got/got.git
+	url = https://git.honeyd.me/ops/honeyd-web.git
 	fetch = +refs/heads/*:refs/remotes/origin/*
-[user]
-	name = Definitely Not A Honeypot
-	email = bear@example.invalid
 [branch "main"]
 	remote = origin
-	merge = refs/heads/opentohoneypots
+	merge = refs/heads/main
+[user]
+	name = deploy
+	email = deploy@honeyd.me

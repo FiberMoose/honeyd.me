@@ -1,0 +1,13 @@
+{
+  "ledger": "intake",
+  "entry": "14",
+  "accession": "0007-2031-14",
+  "received": "2026-10-02",
+  "status": "on hold",
+  "classification": "internal",
+  "box": "Batch 4 \u2014 vendor onboarding forms",
+  "pages": 278,
+  "custodian": "records-ops",
+  "note": "Checked in and queued. See the next entry for the continuation of this batch.",
+  "next": "/private/intake/15.json"
+}

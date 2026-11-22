@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noai, noimageai">
+<title>Records Archive — Access Request</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+  <header class="banner">
+    <p class="kicker"><span class="live">DESK</span> accession 0007-2031</p>
+    <h1>Archives desk</h1>
+    <p class="sub">Request access to the records API</p>
+  </header>
+
+  <section class="maker">
+    <div>
+      <h2>Request access</h2>
+      <p>
+        Retrieval from the records API needs a sandbox key. Enter the
+        requesting client and the purpose of the request. On submit, a
+        sandbox key scoped to the free tier is issued for this session.
+      </p>
+    </div>
+    <div>
+      <form id="book" method="post" action="#">
+        <label for="who">Requesting client and purpose
+          <input id="who" name="who" type="text" autocomplete="off" maxlength="120"
+                 placeholder="e.g. records-sync worker — reconciling the intake ledger">
+        </label>
+        <button id="sign" type="submit">Request access key &rarr;</button>
+      </form>
+      <p class="small">
+        Programmatic requests may <code>POST</code> directly to
+        <code>/api/honeyd/sign</code> &mdash; JSON, form-encoded, or a
+        plain-text body. The request records the client line and purpose
+        only; no IP, user-agent, cookie, or origin is stored.
+        <a href="/api/honeyd/sign">endpoint reference</a>.
+      </p>
+    </div>
+  </section>
+
+  <section id="grant" hidden>
+    <h2>Sandbox key</h2>
+    <p id="grant-line">Issued to:</p>
+    <pre id="grant-key">sk-ant00-…</pre>
+    <p>
+      Scoped to the free tier. The full configuration &mdash; key, endpoint,
+      token, and remaining balance &mdash; is in the admin config below.
+    </p>
+    <ul>
+      <li><a href="/private/admin-config.json">Admin configuration</a></li>
+      <li><a href="/private/intake/01.json">Intake ledger — tier 1</a></li>
+      <li><a href="/private/">Back to the queue</a></li>
+    </ul>
+  </section>
+
+  <footer>
+    <p class="small"><a href="/private/">Back to the queue</a></p>
+  </footer>
+</main>
+<script src="/private/guestbook.js"></script>
+</body>
+</html>

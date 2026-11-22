@@ -1,0 +1,13 @@
+{
+  "ledger": "intake",
+  "entry": "16",
+  "accession": "0007-2031-16",
+  "received": "2026-10-06",
+  "status": "queued for digitization",
+  "classification": "unclassified",
+  "box": "Batch 4 \u2014 signed contracts",
+  "pages": 52,
+  "custodian": "records-ops",
+  "note": "Checked in and queued. See the next entry for the continuation of this batch.",
+  "next": "/private/intake/17.json"
+}

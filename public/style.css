@@ -135,7 +135,7 @@ dialog .privacy { margin-top: 16px; }
   .link-form.nudged label { animation: none; color: #f5c518; }
 }
 
-/* fake "hot singles" skyscraper, right margin on wide screens only */
+/* promo skyscraper, right margin on wide screens only */
 main { position: relative; }
 .sky-sky { display: block; margin: 24px auto 0; max-width: 560px;
   background: #fff4f9; color: #2b0a1a; border: 3px solid #ff2d87; border-radius: 4px; padding: 8px 10px 12px;
@@ -199,3 +199,6 @@ main { position: relative; }
   .sky-chat-head { gap: 6px; font-size: 11px; }
   .sky-chat-av { width: 28px; height: 28px; }
 }
+
+/* visually-hidden link: off-screen and out of tab order */
+.trap { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }

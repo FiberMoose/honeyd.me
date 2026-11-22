@@ -1,0 +1,13 @@
+{
+  "ledger": "intake",
+  "entry": "09",
+  "accession": "0007-2031-09",
+  "received": "2026-10-19",
+  "status": "on hold",
+  "classification": "internal",
+  "box": "Batch 3 \u2014 monthly reports",
+  "pages": 193,
+  "custodian": "records-ops",
+  "note": "Checked in and queued. See the next entry for the continuation of this batch.",
+  "next": "/private/intake/10.json"
+}

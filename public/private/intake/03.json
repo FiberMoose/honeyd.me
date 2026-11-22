@@ -1,0 +1,13 @@
+{
+  "ledger": "intake",
+  "entry": "03",
+  "accession": "0007-2031-03",
+  "received": "2026-10-07",
+  "status": "indexed",
+  "classification": "restricted",
+  "box": "Batch 1 \u2014 meeting minutes",
+  "pages": 91,
+  "custodian": "records-ops",
+  "note": "Checked in and queued. See the next entry for the continuation of this batch.",
+  "next": "/private/intake/04.json"
+}

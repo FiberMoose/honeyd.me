@@ -1,0 +1,13 @@
+{
+  "ledger": "intake",
+  "entry": "01",
+  "accession": "0007-2031-01",
+  "received": "2026-10-03",
+  "status": "queued for digitization",
+  "classification": "internal",
+  "box": "Batch 1 \u2014 general correspondence",
+  "pages": 57,
+  "custodian": "records-ops",
+  "note": "Checked in and queued. See the next entry for the continuation of this batch.",
+  "next": "/private/intake/02.json"
+}

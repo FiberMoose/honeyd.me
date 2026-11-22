@@ -1,0 +1,13 @@
+{
+  "ledger": "intake",
+  "entry": "07",
+  "accession": "0007-2031-07",
+  "received": "2026-10-15",
+  "status": "in processing",
+  "classification": "restricted",
+  "box": "Batch 2 \u2014 service agreements",
+  "pages": 159,
+  "custodian": "records-ops",
+  "note": "Checked in and queued. See the next entry for the continuation of this batch.",
+  "next": "/private/intake/08.json"
+}

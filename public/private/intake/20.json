@@ -1,0 +1,13 @@
+{
+  "ledger": "intake",
+  "entry": "20",
+  "accession": "0007-2031-20",
+  "received": "2026-10-14",
+  "status": "under legal hold",
+  "classification": "restricted",
+  "box": "Batch 5 \u2014 restricted holdings",
+  "pages": 120,
+  "custodian": "records-ops",
+  "note": "Sealed pending review; retrieval requires desk approval.",
+  "next": "/private/intake/01.json"
+}

@@ -1,0 +1,13 @@
+{
+  "ledger": "intake",
+  "entry": "08",
+  "accession": "0007-2031-08",
+  "received": "2026-10-17",
+  "status": "indexed",
+  "classification": "unclassified",
+  "box": "Batch 2 \u2014 internal memoranda",
+  "pages": 176,
+  "custodian": "records-ops",
+  "note": "Checked in and queued. See the next entry for the continuation of this batch.",
+  "next": "/private/intake/09.json"
+}

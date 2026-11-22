@@ -1,0 +1,13 @@
+{
+  "ledger": "intake",
+  "entry": "18",
+  "accession": "0007-2031-18",
+  "received": "2026-10-10",
+  "status": "indexed",
+  "classification": "internal",
+  "box": "Batch 5 \u2014 maintenance logs",
+  "pages": 86,
+  "custodian": "records-ops",
+  "note": "Checked in and queued. See the next entry for the continuation of this batch.",
+  "next": "/private/intake/19.json"
+}

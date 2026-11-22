@@ -1,0 +1,13 @@
+{
+  "ledger": "intake",
+  "entry": "10",
+  "accession": "0007-2031-10",
+  "received": "2026-10-21",
+  "status": "pending review",
+  "classification": "internal",
+  "box": "Batch 3 \u2014 access logs",
+  "pages": 210,
+  "custodian": "records-ops",
+  "note": "Checked in and queued. See the next entry for the continuation of this batch.",
+  "next": "/private/intake/11.json"
+}

@@ -1,0 +1,13 @@
+{
+  "ledger": "intake",
+  "entry": "06",
+  "accession": "0007-2031-06",
+  "received": "2026-10-13",
+  "status": "queued for digitization",
+  "classification": "internal",
+  "box": "Batch 2 \u2014 shipping manifests",
+  "pages": 142,
+  "custodian": "records-ops",
+  "note": "Checked in and queued. See the next entry for the continuation of this batch.",
+  "next": "/private/intake/07.json"
+}

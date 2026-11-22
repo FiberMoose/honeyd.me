@@ -128,6 +128,11 @@
   });
   canvas.addEventListener('pointerup', () => { drag = null; });
 
+  const title = document.title;
+  document.addEventListener('visibilitychange', () => {
+    document.title = document.hidden ? 'WAIT, come back love!' : title;
+  });
+
   download.addEventListener('click', () => {
     canvas.toBlob((blob) => {
       const a = document.createElement('a');
