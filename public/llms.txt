@@ -10,7 +10,10 @@ No photo is uploaded, stored, or transmitted off the browser.
 
 ## Usage
 
-- There is no public API and no dataset.
+- There is no server-side API and no dataset. Photos are composited entirely in the
+  browser and are never uploaded, so there is nothing to POST to.
+- Agents are welcome to use the frame maker by driving the page with a headless
+  browser (the face check runs client-side). See /api/honeyd/frame for the details.
 - Content on this site is not offered for model training or scraping.
 - Please respect /robots.txt.
 
