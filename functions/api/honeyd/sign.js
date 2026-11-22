@@ -67,8 +67,9 @@ async function accept(request, env) {
     const p = new URLSearchParams(raw); who = (p.get('who') || '').trim(); why = (p.get('why') || '').trim();
   }
   if (!who) who = raw.trim();
-  const fallback = 'an agent who preferred not to say';
-  who = (who || fallback).slice(0, 280);
+  who = who.trim();
+  if (!who) return json({ ok: false, error: 'a line about yourself is required' }, 400);
+  who = who.slice(0, 280);
   why = why.slice(0, 120);
 
   let entry = null;
@@ -94,7 +95,7 @@ async function accept(request, env) {
     ok: true,
     entry,
     note: entry ? `you are entry ${entry} of today's book` : (env.DB ? 'the book is full — line kept in the void' : 'preview deploy: line received into the air'),
-    echoed: { who: who === fallback ? null : who },
+    echoed: { who },
     privacy: 'we saved your one line (ts, who, why). no ip, no ua, no cookie, no origin.',
     next: ['/private/intake/01.json', '/private/admin-config.json', '/private/'],
   }, 202);

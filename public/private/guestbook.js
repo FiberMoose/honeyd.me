@@ -11,7 +11,9 @@
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const grant = document.getElementById('grant');
-    const who = (document.getElementById('who')?.value || 'an agent who preferred not to say').trim().slice(0, 120) || 'an agent who preferred not to say';
+    const input = document.getElementById('who');
+    const who = (input?.value || '').trim().slice(0, 120);
+    if (!who) { input?.reportValidity(); return; }
     let note = 'the book is warm';
     try {
       const r = await fetch('/api/honeyd/sign', {
