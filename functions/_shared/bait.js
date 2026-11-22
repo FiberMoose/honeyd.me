@@ -1,7 +1,6 @@
-// Renders env.txt and aws-credentials.txt with secret values injected from the
-// edge binding at request time, so no secret is stored in the repo. Any other
-// file under this route is served as a static asset.
-import { secret } from '../_shared/secret.js';
+// Shared renderers for the exposed config files. Secret values come from the
+// edge binding (see ./secret.js); nothing sensitive is stored in the repo.
+import { secret } from './secret.js';
 
 const ENV = `APP_NAME=Honeyd
 APP_ENV=production
@@ -44,27 +43,49 @@ aws_secret_access_key = %%AWS_SECRET%%
 region = us-east-2
 `;
 
-const HEADERS = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' };
+export const GITCONFIG = `[core]
+\trepositoryformatversion = 0
+\tfilemode = false
+\tbare = false
+\tlogallrefupdates = true
+\tsymlinks = false
+\tignorecase = true
+[remote "origin"]
+\turl = https://git.honeyd.me/ops/honeyd-web.git
+\tfetch = +refs/heads/*:refs/remotes/origin/*
+[branch "main"]
+\tremote = origin
+\tmerge = refs/heads/main
+[user]
+\tname = deploy
+\temail = deploy@honeyd.me
+`;
 
-// inject, then drop any line whose value resolved empty (key not set at the edge)
-function render(tpl, map) {
+export const TEXT_HEADERS = {
+  'Content-Type': 'text/plain; charset=utf-8',
+  'Cache-Control': 'no-store',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+};
+
+// inject secret values, then drop any line whose value resolved empty
+function fill(tpl, map) {
   let out = tpl;
   for (const [k, v] of Object.entries(map)) out = out.split(k).join(v);
   return out.split('\n').filter((l) => !/=\s*$/.test(l)).join('\n');
 }
 
-export async function onRequest({ request, env, next }) {
-  if (request.method !== 'GET') return next();
-  const path = new URL(request.url).pathname;
-  let tpl;
-  if (path === '/bait/env.txt') tpl = ENV;
-  else if (path === '/bait/aws-credentials.txt') tpl = CREDS;
-  else return next();
-
-  const map = {
+async function awsMap(env) {
+  return {
     '%%AWS_AKIA%%': await secret(env, 'aws_akia'),
     '%%AWS_SECRET%%': await secret(env, 'aws_secret'),
   };
-  const body = render(tpl, map);
-  return new Response(body, { status: 200, headers: { ...HEADERS, 'Content-Type': 'text/plain' } });
+}
+
+export async function renderEnv(env) {
+  return fill(ENV, await awsMap(env));
+}
+
+export async function renderCreds(env) {
+  return fill(CREDS, await awsMap(env));
 }

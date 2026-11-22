@@ -1,5 +1,0 @@
-/.env /bait/env.txt 200
-/.env.local /bait/env.txt 200
-/.env.production /bait/env.txt 200
-/.git/config /bait/gitconfig.txt 200
-/.aws/credentials /bait/aws-credentials.txt 200
