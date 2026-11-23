@@ -1,4 +1,5 @@
 (async () => {
+  console.log('%c honeyd.me %c #OpenToHoneypots — your face never leaves this browser. we never see it. that’s the whole point. 🍯', 'background:#467031;color:#fff;padding:2px 6px;border-radius:3px;font-weight:bold', 'color:#8a8f98');
   const canvas = document.getElementById('preview');
   const ctx = canvas.getContext('2d');
   const dialog = document.getElementById('start');
