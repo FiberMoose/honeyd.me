@@ -79,13 +79,20 @@ function pingBeacon(env, key, m) {
   }).catch(() => {});
 }
 
-function beaconHost(ctx, beaconKey, body, status) {
+// paths that mean "someone is actually using the leaked endpoint" (an MCP
+// client / kubectl), as opposed to a scanner spraying random probes at the host
+const MCP_ALERT_RE = /^\/(sse|messages?|mcp)(\/|$)/;
+const K8S_ALERT_RE = /^\/(version|api|apis|openapi|healthz|livez|readyz)(\/|$)/;
+
+function beaconHost(ctx, beaconKey, body, status, alertRe) {
   const { request, env, waitUntil } = ctx;
   const url = new URL(request.url);
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: JSON_HEADERS });
   const m = hitMeta(request);
+  // log every hit for metrics, but only email (ping the canarytoken) when the
+  // path is a real exploit attempt, so scanner noise stays out of the mailbox
   waitUntil(logHit(env, { host: url.hostname, path: url.pathname, method: request.method, beacon: beaconKey, ...m }));
-  waitUntil(pingBeacon(env, beaconKey, m));
+  if (alertRe.test(url.pathname)) waitUntil(pingBeacon(env, beaconKey, m));
   return new Response(body, { status, headers: JSON_HEADERS });
 }
 
@@ -94,8 +101,8 @@ export async function onRequest(ctx) {
   const url = new URL(request.url);
   const host = url.hostname;
 
-  if (host === 'mcp.honeyd.me') return beaconHost(ctx, 'beacon_mcp', MCP_401, 401);
-  if (host === 'k8s.honeyd.me') return beaconHost(ctx, 'beacon_k8s', K8S_401, 401);
+  if (host === 'mcp.honeyd.me') return beaconHost(ctx, 'beacon_mcp', MCP_401, 401, MCP_ALERT_RE);
+  if (host === 'k8s.honeyd.me') return beaconHost(ctx, 'beacon_k8s', K8S_401, 401, K8S_ALERT_RE);
 
   const path = (url.pathname.replace(/\/+$/, '')) || '/';
 
