@@ -43,3 +43,10 @@ CREATE TABLE IF NOT EXISTS api_records (
 CREATE TABLE IF NOT EXISTS llm_prompts (
   ts TEXT, ip TEXT, api_key TEXT, model TEXT, source TEXT, messages TEXT
 );
+
+-- first-party apex log: every bait grab (.env/.git/dump/actuator/phpinfo/
+-- graphql/cred-files/gcp/ssh/backups) and every 403 probe, with source.
+CREATE TABLE IF NOT EXISTS apex_hits (
+  ts TEXT, host TEXT, path TEXT, method TEXT, label TEXT, status INTEGER,
+  ip TEXT, country TEXT, asn TEXT, as_org TEXT, ua TEXT
+);

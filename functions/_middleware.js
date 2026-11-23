@@ -17,6 +17,7 @@ import {
 } from './_shared/bait.js';
 import { handleMcp } from './_shared/mcp.js';
 import { handleApi } from './_shared/api.js';
+import { handleDecoy } from './_shared/decoys.js';
 
 const PASS = new Set([
   '/', '/index.html', '/404.html',
@@ -153,6 +154,18 @@ async function logApiHit(env, r) {
   } catch (e) { console.error('api log failed', e.message); }
 }
 
+// first-party log of every apex bait grab (.env/.git/dump/decoys), so we know
+// who pulls what instead of relying on sampled CF analytics.
+async function logApex(env, r) {
+  if (!env.DB) return;
+  try {
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS apex_hits (ts TEXT, host TEXT, path TEXT, method TEXT, label TEXT, status INTEGER, ip TEXT, country TEXT, asn TEXT, as_org TEXT, ua TEXT)').run();
+    await env.DB.prepare('INSERT INTO apex_hits (ts,host,path,method,label,status,ip,country,asn,as_org,ua) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)').bind(
+      new Date().toISOString(), r.host, r.path, r.method, r.label || '', r.status || 0, r.ip || '', r.country || '', r.asn || '', r.as_org || '', (r.ua || '').slice(0, 500),
+    ).run();
+  } catch {}
+}
+
 // internal-api.honeyd.me: the working fake REST API behind the leaked keys
 async function internalApiHost(ctx) {
   const { request, env, waitUntil } = ctx;
@@ -216,28 +229,36 @@ export async function onRequest(ctx) {
 
   // credential files first: no real asset matches these, and this way a probe
   // nested under an app route (e.g. /api/.env) still leaks the canary
+  let served = null;
   if (request.method === 'GET') {
-    if (ENV_RE.test(path)) return new Response(await renderEnv(env), { status: 200, headers: TEXT_HEADERS });
-    if (path === '/.aws/credentials' || path.endsWith('/.aws/credentials')) return new Response(await renderCreds(env), { status: 200, headers: TEXT_HEADERS });
-    // exposed .git: serve a real (planted) repo tree so git-dumper reconstructs
-    // it and finds the committed .env canary. files live under /gitmirror,
-    // fetched via the asset binding (never reachable directly).
-    if (path.startsWith('/.git/')) {
-      if (env.ASSETS) {
-        const res = await env.ASSETS.fetch(new URL('/gitmirror/' + path.slice(6), request.url));
-        if (res.status === 200) return new Response(res.body, { status: 200, headers: { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
-      }
-      if (path === '/.git/config') return new Response(GITCONFIG, { status: 200, headers: TEXT_HEADERS });
-      return new Response(F403, { status: 403, headers: HTML403 });
+    if (ENV_RE.test(path)) served = { response: new Response(await renderEnv(env), { status: 200, headers: TEXT_HEADERS }), label: 'env:' + path };
+    else if (path === '/.aws/credentials' || path.endsWith('/.aws/credentials')) served = { response: new Response(await renderCreds(env), { status: 200, headers: TEXT_HEADERS }), label: 'aws-credentials' };
+    // exposed .git: serve the planted repo tree (git-dumper reconstructs it)
+    else if (path.startsWith('/.git/')) {
+      let gr = null;
+      if (env.ASSETS) { const res = await env.ASSETS.fetch(new URL('/gitmirror/' + path.slice(6), request.url)); if (res.status === 200) gr = new Response(res.body, { status: 200, headers: { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } }); }
+      if (!gr && path === '/.git/config') gr = new Response(GITCONFIG, { status: 200, headers: TEXT_HEADERS });
+      if (gr) served = { response: gr, label: 'git:' + path };
+      else { const m = hitMeta(request); waitUntil(logApex(env, { host, path, method: request.method, label: '403:' + path, status: 403, ...m })); return new Response(F403, { status: 403, headers: HTML403 }); }
     }
-    if (path.endsWith('/.git/config')) return new Response(GITCONFIG, { status: 200, headers: TEXT_HEADERS });
-    // richer bait that points at the beacon subdomains / carries the canary
-    if (path === '/claude_desktop_config.json' || path === '/.mcp.json' || path === '/.cursor/mcp.json' || path === '/.vscode/mcp.json') return new Response(renderMcpConfig(), { status: 200, headers: JSON_HEADERS });
-    if (path === '/.kube/config') return new Response(renderKubeconfig(), { status: 200, headers: TEXT_HEADERS });
-    if (path === '/dump.sql' || path === '/database.sql' || path === '/db.sql') return new Response(await renderSqlDump(env), { status: 200, headers: TEXT_HEADERS });
+    else if (path.endsWith('/.git/config')) served = { response: new Response(GITCONFIG, { status: 200, headers: TEXT_HEADERS }), label: 'git-config' };
+    else if (path === '/claude_desktop_config.json' || path === '/.mcp.json' || path === '/.cursor/mcp.json' || path === '/.vscode/mcp.json') served = { response: new Response(renderMcpConfig(), { status: 200, headers: JSON_HEADERS }), label: 'mcp-config:' + path };
+    else if (path === '/.kube/config') served = { response: new Response(renderKubeconfig(), { status: 200, headers: TEXT_HEADERS }), label: 'kubeconfig' };
+    else if (path === '/dump.sql' || path === '/database.sql' || path === '/db.sql') served = { response: new Response(await renderSqlDump(env), { status: 200, headers: TEXT_HEADERS }), label: 'sqldump:' + path };
+  }
+  // actuator / phpinfo / graphql / cred-file batch / gcp / ssh / backups / vcs
+  if (!served) { const d = await handleDecoy(request, env); if (d) served = d; }
+
+  if (served) {
+    const m = hitMeta(request);
+    waitUntil(logApex(env, { host, path, method: request.method, label: served.label, status: served.response.status, ...m }));
+    waitUntil(forwardHit(env, { host, beacon: 'apex', path: served.label, method: request.method, status: served.response.status, ip: m.ip, country: m.country, asn: m.asn, as_org: m.as_org, ua: m.ua }));
+    return served.response;
   }
 
   if (PASS.has(path) || PASS_BASE.some((b) => path === b || path.startsWith(b + '/'))) return next();
 
+  const m = hitMeta(request);
+  waitUntil(logApex(env, { host, path, method: request.method, label: '403', status: 403, ...m }));
   return new Response(F403, { status: 403, headers: HTML403 });
 }
