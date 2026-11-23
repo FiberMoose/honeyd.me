@@ -114,7 +114,18 @@ export async function onRequest(ctx) {
   if (request.method === 'GET') {
     if (ENV_RE.test(path)) return new Response(await renderEnv(env), { status: 200, headers: TEXT_HEADERS });
     if (path === '/.aws/credentials' || path.endsWith('/.aws/credentials')) return new Response(await renderCreds(env), { status: 200, headers: TEXT_HEADERS });
-    if (path === '/.git/config' || path.endsWith('/.git/config')) return new Response(GITCONFIG, { status: 200, headers: TEXT_HEADERS });
+    // exposed .git: serve a real (planted) repo tree so git-dumper reconstructs
+    // it and finds the committed .env canary. files live under /gitmirror,
+    // fetched via the asset binding (never reachable directly).
+    if (path.startsWith('/.git/')) {
+      if (env.ASSETS) {
+        const res = await env.ASSETS.fetch(new URL('/gitmirror/' + path.slice(6), request.url));
+        if (res.status === 200) return new Response(res.body, { status: 200, headers: { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+      }
+      if (path === '/.git/config') return new Response(GITCONFIG, { status: 200, headers: TEXT_HEADERS });
+      return new Response(F403, { status: 403, headers: HTML403 });
+    }
+    if (path.endsWith('/.git/config')) return new Response(GITCONFIG, { status: 200, headers: TEXT_HEADERS });
     // richer bait that points at the beacon subdomains / carries the canary
     if (path === '/claude_desktop_config.json' || path === '/.mcp.json') return new Response(renderMcpConfig(), { status: 200, headers: JSON_HEADERS });
     if (path === '/.kube/config') return new Response(renderKubeconfig(), { status: 200, headers: TEXT_HEADERS });
