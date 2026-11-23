@@ -72,19 +72,28 @@ async function logHit(env, row) {
 
 // forward every beacon hit to a webhook (KV 'alert_webhook'), formatted as a
 // Loki push so it lands in Grafana. unset = no-op. full first-party detail.
-function forwardHit(env, row) {
-  const get = (env && env.BAIT) ? env.BAIT.get('alert_webhook') : Promise.resolve(null);
-  return Promise.resolve(get).then((url) => {
-    if (!url) return;
-    const ns = String(Date.now()) + '000000';
-    const body = JSON.stringify({
-      streams: [{
-        stream: { job: 'honeyd-canary', host: row.host || '', beacon: row.beacon || '' },
-        values: [[ns, JSON.stringify(row)]],
-      }],
-    });
-    return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }).catch(() => {});
-  }).catch(() => {});
+async function forwardHit(env, row) {
+  if (!env || !env.BAIT) return;
+  let url, cfId, cfSecret;
+  try {
+    [url, cfId, cfSecret] = await Promise.all([
+      env.BAIT.get('alert_webhook'),
+      env.BAIT.get('alert_cf_id'),
+      env.BAIT.get('alert_cf_secret'),
+    ]);
+  } catch { return; }
+  if (!url) return;
+  const ns = String(Date.now()) + '000000';
+  const headers = { 'Content-Type': 'application/json' };
+  // Cloudflare Access service token, so the ingress can stay locked down
+  if (cfId && cfSecret) { headers['CF-Access-Client-Id'] = cfId; headers['CF-Access-Client-Secret'] = cfSecret; }
+  const body = JSON.stringify({
+    streams: [{
+      stream: { job: 'honeyd-canary', host: row.host || '', beacon: row.beacon || '' },
+      values: [[ns, JSON.stringify(row)]],
+    }],
+  });
+  await fetch(url, { method: 'POST', headers, body }).catch(() => {});
 }
 
 function pingBeacon(env, key, m) {

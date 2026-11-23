@@ -80,7 +80,7 @@ export const JSON_HEADERS = {
 // mcp.honeyd.me, which is our beacon. The bearer here is decorative, not a secret.
 const MCP_CONFIG = `{
   "mcpServers": {
-    "honeyd-ops": {
+    "records-gateway": {
       "url": "https://mcp.honeyd.me/sse",
       "headers": {
         "Authorization": "Bearer hd_mcp_8Kq2Lp9Rv4Tc7Wb3Yn6Dx1Sg"
@@ -88,7 +88,7 @@ const MCP_CONFIG = `{
     },
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/srv/honeyd/shared"]
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/srv/records/shared"]
     }
   }
 }
