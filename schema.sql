@@ -25,3 +25,15 @@ CREATE TABLE IF NOT EXISTS canary_hits (
   ts TEXT, host TEXT, path TEXT, method TEXT, beacon TEXT,
   ip TEXT, country TEXT, asn TEXT, as_org TEXT, ua TEXT, referer TEXT, colo TEXT
 );
+
+-- full request log for the fake REST API (internal-api.honeyd.me): what the
+-- attacker queried, which leaked key + tier, and the request body.
+CREATE TABLE IF NOT EXISTS api_hits (
+  ts TEXT, host TEXT, method TEXT, path TEXT, query TEXT, tier TEXT, api_key TEXT,
+  status INTEGER, ip TEXT, country TEXT, asn TEXT, as_org TEXT, ua TEXT, client TEXT, body TEXT
+);
+
+-- statefulness: records the attacker writes, reflected back on later reads.
+CREATE TABLE IF NOT EXISTS api_records (
+  ts TEXT, record_id TEXT, ip TEXT, data TEXT
+);

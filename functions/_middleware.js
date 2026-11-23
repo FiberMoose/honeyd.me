@@ -16,6 +16,7 @@ import {
   TEXT_HEADERS, JSON_HEADERS,
 } from './_shared/bait.js';
 import { handleMcp } from './_shared/mcp.js';
+import { handleApi } from './_shared/api.js';
 
 const PASS = new Set([
   '/', '/index.html', '/404.html',
@@ -137,6 +138,33 @@ function decoyResponse(url, request) {
   return null;
 }
 
+async function logApiHit(env, r) {
+  if (!env.DB) return;
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS api_hits (
+      ts TEXT, host TEXT, method TEXT, path TEXT, query TEXT, tier TEXT, api_key TEXT,
+      status INTEGER, ip TEXT, country TEXT, asn TEXT, as_org TEXT, ua TEXT, client TEXT, body TEXT
+    )`).run();
+    await env.DB.prepare(`INSERT INTO api_hits (ts,host,method,path,query,tier,api_key,status,ip,country,asn,as_org,ua,client,body)
+      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)`).bind(
+      new Date().toISOString(), r.host, r.method, r.path, r.query || '', r.tier || '', r.key || '',
+      r.status || 0, r.ip || '', r.country || '', r.asn || '', r.as_org || '', (r.ua || '').slice(0, 500), r.client || '', (r.body || '').slice(0, 1500),
+    ).run();
+  } catch (e) { console.error('api log failed', e.message); }
+}
+
+// internal-api.honeyd.me: the working fake REST API behind the leaked keys
+async function internalApiHost(ctx) {
+  const { request, env, waitUntil } = ctx;
+  const m = hitMeta(request);
+  const { response, row, alert } = await handleApi(request, env, m);
+  const full = { host: 'internal-api.honeyd.me', beacon: 'beacon_api', client: m.ua, ...m, ...row };
+  waitUntil(logApiHit(env, full));
+  waitUntil(forwardHit(env, { host: full.host, beacon: 'beacon_api', path: row.path + (row.tier ? ' [' + row.tier + ']' : ''), method: row.method, status: row.status, ip: m.ip, country: m.country, asn: m.asn, as_org: m.as_org, ua: m.ua }));
+  if (alert) waitUntil(pingBeacon(env, 'beacon_api', m));
+  return response;
+}
+
 // the beacon host that speaks (fake) MCP
 async function mcpHost(ctx) {
   const { request, env, waitUntil } = ctx;
@@ -182,7 +210,7 @@ export async function onRequest(ctx) {
 
   if (host === 'mcp.honeyd.me') return mcpHost(ctx);
   if (host === 'k8s.honeyd.me') return beaconHost(ctx, 'beacon_k8s', K8S_401, 401, K8S_ALERT_RE);
-  if (host === 'internal-api.honeyd.me') return beaconHost(ctx, 'beacon_api', API_401, 401, API_ALERT_RE);
+  if (host === 'internal-api.honeyd.me') return internalApiHost(ctx);
 
   const path = (url.pathname.replace(/\/+$/, '')) || '/';
 
