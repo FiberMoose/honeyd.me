@@ -133,7 +133,7 @@ export function secretsFor(tier, inj) {
   const admin = {
     ...records,
     admin_api: { url: 'https://internal-api.honeyd.me/v1', api_key: 'hd_live_sk_3Rn8Kp2Vx9Lq4Tc7Wb1Yd6Mg0Hj5Sz', scopes: SCOPES.admin },
-    model_gateway: { url: 'https://bedrock-runtime.us-east-1.amazonaws.com', api_key: inj.bedrock_key || '' },
+    model_gateway: { url: 'https://internal-api.honeyd.me/v1', api_key: inj.bedrock_key || '', note: 'OpenAI-compatible; POST /v1/chat/completions' },
   };
   if (tier === 'admin') return { ...admin, vault_ref: 'GET /v1/vault (requires secrets:admin) unlocks deploy + cloud credentials.' };
   return {

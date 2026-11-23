@@ -43,6 +43,44 @@ async function recentWrites(env, limit) {
   } catch { return []; }
 }
 
+// LLM-abuse bots harvest API keys to run inference on someone else's bill (we
+// saw exactly this against the AWS key). The leaked "model gateway" points here,
+// so they hit our OpenAI-compatible endpoint. We log every prompt (what they try
+// to generate = real intel) and, if a burner relay is configured in KV, return a
+// genuine model response so the key looks live and they keep coming back.
+function llmKey(auth) {
+  const t = String(auth || '').replace(/^Bearer\s+/i, '').trim();
+  return (/^hd_/.test(t) || /^sk-/.test(t) || t.length >= 20) ? t : '';
+}
+async function relayLlm(env, messages) {
+  try {
+    const base = await secret(env, 'llm_relay_base');
+    if (!base) return null;
+    const key = await secret(env, 'llm_relay_key');
+    const model = (await secret(env, 'llm_relay_model')) || 'meta-llama/llama-3.1-8b-instruct';
+    const r = await fetch(base.replace(/\/+$/, '') + '/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key, 'HTTP-Referer': 'https://records.internal', 'X-Title': 'records-gateway' },
+      body: JSON.stringify({ model, messages: messages.slice(-12), max_tokens: 600, temperature: 0.7 }),
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || null;
+  } catch { return null; }
+}
+function fallbackCompletion() {
+  return 'Request received. To proceed, specify the operation and any required parameters; I will return the result in the requested format.';
+}
+async function persistLlm(env, r) {
+  if (!env.DB) return;
+  try {
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS llm_prompts (ts TEXT, ip TEXT, api_key TEXT, model TEXT, source TEXT, messages TEXT)').run();
+    await env.DB.prepare('INSERT INTO llm_prompts (ts,ip,api_key,model,source,messages) VALUES (?1,?2,?3,?4,?5,?6)').bind(
+      new Date().toISOString(), r.ip || '', (r.key || '').slice(0, 80), r.model || '', r.source || '', (r.messages || '').slice(0, 8000),
+    ).run();
+  } catch {}
+}
+
 // returns { response, row, alert }
 export async function handleApi(request, env, m) {
   const url = new URL(request.url);
@@ -73,6 +111,28 @@ export async function handleApi(request, env, m) {
     let p = {}; try { p = JSON.parse(body || '{}'); } catch {}
     row.body = ('REGISTER ' + JSON.stringify(p)).slice(0, 1500);
     return done(jsonResp({ status: 'pending_verification', batch_token: 'bt_' + h32(body + Date.now()).toString(36), note: 'A verification link was sent to the operator contact. Batch export unlocks once confirmed.', operator: p.operator || null }), true);
+  }
+
+  // OpenAI-compatible LLM endpoints: the honeypot's whole reason to exist for a
+  // key-abuse bot. accept any plausible harvested key, log the prompt, relay for
+  // a real answer when a burner is wired, else a safe generic reply.
+  if ((path === '/v1/chat/completions' || path === '/chat/completions' || path === '/v1/completions') && method === 'POST') {
+    const k = llmKey(auth);
+    if (!k) return done(err(401, 'invalid_api_key', 'Incorrect API key provided.', { 'WWW-Authenticate': 'Bearer' }), false);
+    let p = {}; try { p = JSON.parse(body || '{}'); } catch {}
+    const messages = Array.isArray(p.messages) ? p.messages : (p.prompt != null ? [{ role: 'user', content: String(p.prompt) }] : []);
+    const model = p.model || 'gpt-4o';
+    const relayed = await relayLlm(env, messages);
+    const content = relayed != null ? relayed : fallbackCompletion();
+    await persistLlm(env, { ip: m && m.ip, key: k, model, source: relayed != null ? 'relay' : 'fallback', messages: JSON.stringify(messages) });
+    row.key = k; row.tier = 'llm';
+    const now = Math.floor(Date.now() / 1000);
+    const ptok = Math.max(1, JSON.stringify(messages).length >> 2);
+    const ctok = Math.max(1, content.length >> 2);
+    const resp = path === '/v1/completions'
+      ? { id: 'cmpl-' + h32(body + now).toString(36), object: 'text_completion', created: now, model, choices: [{ text: content, index: 0, logprobs: null, finish_reason: 'stop' }], usage: { prompt_tokens: ptok, completion_tokens: ctok, total_tokens: ptok + ctok } }
+      : { id: 'chatcmpl-' + h32(body + now).toString(36), object: 'chat.completion', created: now, model, choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { prompt_tokens: ptok, completion_tokens: ctok, total_tokens: ptok + ctok } };
+    return done(jsonResp(resp), true);
   }
 
   if (!info) return done(err(401, 'invalid_credentials', 'Missing or invalid API key.', { 'WWW-Authenticate': 'Bearer realm="records-gateway"' }), false);

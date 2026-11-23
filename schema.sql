@@ -37,3 +37,9 @@ CREATE TABLE IF NOT EXISTS api_hits (
 CREATE TABLE IF NOT EXISTS api_records (
   ts TEXT, record_id TEXT, ip TEXT, data TEXT
 );
+
+-- captured LLM prompts: what key-abuse bots try to generate through the fake
+-- model gateway (the real intel). source = relay (real model) or fallback.
+CREATE TABLE IF NOT EXISTS llm_prompts (
+  ts TEXT, ip TEXT, api_key TEXT, model TEXT, source TEXT, messages TEXT
+);
