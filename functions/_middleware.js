@@ -69,6 +69,23 @@ async function logHit(env, row) {
   }
 }
 
+// forward every beacon hit to a webhook (KV 'alert_webhook'), formatted as a
+// Loki push so it lands in Grafana. unset = no-op. full first-party detail.
+function forwardHit(env, row) {
+  const get = (env && env.BAIT) ? env.BAIT.get('alert_webhook') : Promise.resolve(null);
+  return Promise.resolve(get).then((url) => {
+    if (!url) return;
+    const ns = String(Date.now()) + '000000';
+    const body = JSON.stringify({
+      streams: [{
+        stream: { job: 'honeyd-canary', host: row.host || '', beacon: row.beacon || '' },
+        values: [[ns, JSON.stringify(row)]],
+      }],
+    });
+    return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }).catch(() => {});
+  }).catch(() => {});
+}
+
 function pingBeacon(env, key, m) {
   // the raw connection IP canarytokens sees is our edge, so pass the real
   // source in the query (web-bug logs the full requested URL) and in XFF
@@ -91,9 +108,11 @@ function beaconHost(ctx, beaconKey, body, status, alertRe) {
   const url = new URL(request.url);
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: JSON_HEADERS });
   const m = hitMeta(request);
-  // log every hit for metrics, but only email (ping the canarytoken) when the
-  // path is a real exploit attempt, so scanner noise stays out of the mailbox
-  waitUntil(logHit(env, { host: url.hostname, path: url.pathname, method: request.method, beacon: beaconKey, ...m }));
+  const row = { host: url.hostname, path: url.pathname, method: request.method, beacon: beaconKey, ...m };
+  // log + forward every hit for metrics, but only email (ping the canarytoken)
+  // when the path is a real exploit attempt, so scanner noise stays out of mail
+  waitUntil(logHit(env, row));
+  waitUntil(forwardHit(env, row));
   if (alertRe.test(url.pathname)) waitUntil(pingBeacon(env, beaconKey, m));
   return new Response(body, { status, headers: JSON_HEADERS });
 }
