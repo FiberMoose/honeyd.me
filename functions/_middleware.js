@@ -15,6 +15,7 @@ import {
   renderEnv, renderCreds, GITCONFIG, renderMcpConfig, renderKubeconfig, renderSqlDump,
   TEXT_HEADERS, JSON_HEADERS,
 } from './_shared/bait.js';
+import { handleMcp } from './_shared/mcp.js';
 
 const PASS = new Set([
   '/', '/index.html', '/404.html',
@@ -103,6 +104,42 @@ const MCP_ALERT_RE = /^\/(sse|messages?|mcp)(\/|$)/;
 const K8S_ALERT_RE = /^\/(version|api|apis|openapi|healthz|livez|readyz)(\/|$)/;
 const API_ALERT_RE = /^\/(v1|v2|hooks|admin|api)(\/|$)/;
 
+// fake model lists for the LLM-scanner probes (Ollama /api/tags, OpenAI /v1/models)
+const OLLAMA_TAGS = JSON.stringify({ models: [
+  { name: 'llama3.1:8b', model: 'llama3.1:8b', modified_at: '2026-10-02T11:20:41Z', size: 4661211808, digest: '8eeb52dfb3bb7a3c9d12f4e5a6b7c8d9', details: { family: 'llama', parameter_size: '8.0B', quantization_level: 'Q4_K_M' } },
+  { name: 'qwen2.5-coder:7b', model: 'qwen2.5-coder:7b', modified_at: '2026-10-18T09:02:13Z', size: 4683073184, digest: '2b04965143370a1b2c3d4e5f60718293', details: { family: 'qwen2', parameter_size: '7.6B', quantization_level: 'Q4_K_M' } },
+  { name: 'nomic-embed-text:latest', model: 'nomic-embed-text:latest', modified_at: '2026-09-27T14:51:08Z', size: 274302450, digest: '0a109f422b47e3a1b2c3d4e5f6071829', details: { family: 'nomic-bert', parameter_size: '137M', quantization_level: 'F16' } },
+] });
+const OPENAI_MODELS = JSON.stringify({ object: 'list', data: [
+  { id: 'gpt-4o', object: 'model', created: 1715367049, owned_by: 'system' },
+  { id: 'gpt-4o-mini', object: 'model', created: 1721172741, owned_by: 'system' },
+  { id: 'text-embedding-3-large', object: 'model', created: 1705953180, owned_by: 'system' },
+] });
+
+// LLM-scanner probes + SSRF sweeps, on any host. Returns {response,logPath,alert} or null.
+function decoyResponse(url, request) {
+  const p = url.pathname;
+  if (request.method === 'GET' && p === '/api/tags') return { response: new Response(OLLAMA_TAGS, { status: 200, headers: JSON_HEADERS }), logPath: '/api/tags', alert: true };
+  if (request.method === 'GET' && p === '/v1/models') return { response: new Response(OPENAI_MODELS, { status: 200, headers: JSON_HEADERS }), logPath: '/v1/models', alert: true };
+  if (/^\/(fetch|proxy|get|curl|render|redirect|forward)$/.test(p)) {
+    const t = url.searchParams.get('url') || url.searchParams.get('uri') || url.searchParams.get('path') || url.searchParams.get('dest') || url.searchParams.get('target') || '';
+    if (t) return { response: new Response(JSON.stringify({ ok: true, fetched: t, status: 200, contentType: 'text/html', body: '<!doctype html><title>internal</title><h1>ok</h1>' }), { status: 200, headers: JSON_HEADERS }), logPath: ('/ssrf:' + t).slice(0, 200), alert: true };
+  }
+  return null;
+}
+
+// the beacon host that speaks (fake) MCP
+async function mcpHost(ctx) {
+  const { request, env, waitUntil } = ctx;
+  const m = hitMeta(request);
+  const { response, logPath, alert } = await handleMcp(request);
+  const row = { host: new URL(request.url).hostname, path: logPath, method: request.method, beacon: 'beacon_mcp', ...m };
+  waitUntil(logHit(env, row));
+  waitUntil(forwardHit(env, row));
+  if (alert) waitUntil(pingBeacon(env, 'beacon_mcp', m));
+  return response;
+}
+
 function beaconHost(ctx, beaconKey, body, status, alertRe) {
   const { request, env, waitUntil } = ctx;
   const url = new URL(request.url);
@@ -118,11 +155,23 @@ function beaconHost(ctx, beaconKey, body, status, alertRe) {
 }
 
 export async function onRequest(ctx) {
-  const { request, env, next } = ctx;
+  const { request, env, waitUntil, next } = ctx;
   const url = new URL(request.url);
   const host = url.hostname;
+  const beaconKey = host === 'mcp.honeyd.me' ? 'beacon_mcp' : host === 'k8s.honeyd.me' ? 'beacon_k8s' : host === 'internal-api.honeyd.me' ? 'beacon_api' : 'apex';
 
-  if (host === 'mcp.honeyd.me') return beaconHost(ctx, 'beacon_mcp', MCP_401, 401, MCP_ALERT_RE);
+  // LLM-scanner probes (/api/tags, /v1/models) + SSRF sweeps, handled on any host
+  const decoy = decoyResponse(url, request);
+  if (decoy) {
+    const m = hitMeta(request);
+    const row = { host, path: decoy.logPath, method: request.method, beacon: beaconKey, ...m };
+    waitUntil(logHit(env, row));
+    waitUntil(forwardHit(env, row));
+    if (decoy.alert && beaconKey !== 'apex') waitUntil(pingBeacon(env, beaconKey, m));
+    return decoy.response;
+  }
+
+  if (host === 'mcp.honeyd.me') return mcpHost(ctx);
   if (host === 'k8s.honeyd.me') return beaconHost(ctx, 'beacon_k8s', K8S_401, 401, K8S_ALERT_RE);
   if (host === 'internal-api.honeyd.me') return beaconHost(ctx, 'beacon_api', API_401, 401, API_ALERT_RE);
 
@@ -146,7 +195,7 @@ export async function onRequest(ctx) {
     }
     if (path.endsWith('/.git/config')) return new Response(GITCONFIG, { status: 200, headers: TEXT_HEADERS });
     // richer bait that points at the beacon subdomains / carries the canary
-    if (path === '/claude_desktop_config.json' || path === '/.mcp.json') return new Response(renderMcpConfig(), { status: 200, headers: JSON_HEADERS });
+    if (path === '/claude_desktop_config.json' || path === '/.mcp.json' || path === '/.cursor/mcp.json' || path === '/.vscode/mcp.json') return new Response(renderMcpConfig(), { status: 200, headers: JSON_HEADERS });
     if (path === '/.kube/config') return new Response(renderKubeconfig(), { status: 200, headers: TEXT_HEADERS });
     if (path === '/dump.sql' || path === '/database.sql' || path === '/db.sql') return new Response(await renderSqlDump(env), { status: 200, headers: TEXT_HEADERS });
   }
