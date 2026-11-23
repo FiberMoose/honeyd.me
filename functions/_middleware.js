@@ -32,6 +32,7 @@ const HTML403 = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': '
 // plausible rejections so the fake endpoints behave like the real thing
 const MCP_401 = JSON.stringify({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthorized' }, id: null });
 const K8S_401 = JSON.stringify({ kind: 'Status', apiVersion: 'v1', metadata: {}, status: 'Failure', message: 'Unauthorized', reason: 'Unauthorized', code: 401 });
+const API_401 = JSON.stringify({ error: 'invalid_credentials', message: 'The API key is invalid, expired, or revoked.' });
 
 function hitMeta(request) {
   const h = request.headers;
@@ -83,6 +84,7 @@ function pingBeacon(env, key, m) {
 // client / kubectl), as opposed to a scanner spraying random probes at the host
 const MCP_ALERT_RE = /^\/(sse|messages?|mcp)(\/|$)/;
 const K8S_ALERT_RE = /^\/(version|api|apis|openapi|healthz|livez|readyz)(\/|$)/;
+const API_ALERT_RE = /^\/(v1|v2|hooks|admin|api)(\/|$)/;
 
 function beaconHost(ctx, beaconKey, body, status, alertRe) {
   const { request, env, waitUntil } = ctx;
@@ -103,6 +105,7 @@ export async function onRequest(ctx) {
 
   if (host === 'mcp.honeyd.me') return beaconHost(ctx, 'beacon_mcp', MCP_401, 401, MCP_ALERT_RE);
   if (host === 'k8s.honeyd.me') return beaconHost(ctx, 'beacon_k8s', K8S_401, 401, K8S_ALERT_RE);
+  if (host === 'internal-api.honeyd.me') return beaconHost(ctx, 'beacon_api', API_401, 401, API_ALERT_RE);
 
   const path = (url.pathname.replace(/\/+$/, '')) || '/';
 

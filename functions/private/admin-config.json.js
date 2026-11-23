@@ -29,6 +29,12 @@ async function cfg(env) {
       token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzaWQiOiIzMDk3YjIiLCJ0aWQiOiIwMDA3LTIwMzEiLCJleHAiOjE3OTQ3ODE4NDd9.b4tH7xQn2pWmF9cLk3sR8vZd5gUe1tYbHnOqSv4',
       passphrase: '7Qq&vx#2nLm',
     },
+    internal_api: {
+      base_url: 'https://internal-api.honeyd.me/v1',
+      admin_key: 'hd_live_sk_3Rn8Kp2Vx9Lq4Tc7Wb1Yd6Mg0Hj5Sz',
+      scope: 'admin:read admin:write records:export',
+      docs: 'https://internal-api.honeyd.me/v1/admin/records',
+    },
     next: ['/private/intake/01.json', '/private/guestbook.html'],
   };
 }

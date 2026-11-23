@@ -23,7 +23,8 @@ AWS_DEFAULT_REGION=us-east-2
 AWS_BUCKET=honeyd-prod-assets
 
 INTERNAL_API_URL=https://internal-api.honeyd.me/v1
-WEBHOOK_URL=https://hooks.slack.com/services/T0AB12CD3/B0EF45GH6/Zx9KdLm3Qr7Tv2Wp8Yb4Nc6
+INTERNAL_API_KEY=hd_live_sk_8Fq2Lp9Rv4Tc7Wb3Yn6Dx1Sg5Hm0Kj
+WEBHOOK_URL=https://internal-api.honeyd.me/hooks/T0AB12CD3/B0EF45GH6/Zx9KdLm3Qr7Tv2Wp8Yb4Nc6
 
 MAIL_MAILER=smtp
 MAIL_HOST=smtp.mailgun.org
