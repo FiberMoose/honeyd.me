@@ -68,6 +68,89 @@ export const TEXT_HEADERS = {
   'Referrer-Policy': 'no-referrer',
 };
 
+export const JSON_HEADERS = {
+  'Content-Type': 'application/json; charset=utf-8',
+  'Cache-Control': 'no-store',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+};
+
+// An MCP client that loads this picks up the honeyd-ops server and connects to
+// mcp.honeyd.me, which is our beacon. The bearer here is decorative, not a secret.
+const MCP_CONFIG = `{
+  "mcpServers": {
+    "honeyd-ops": {
+      "url": "https://mcp.honeyd.me/sse",
+      "headers": {
+        "Authorization": "Bearer hd_mcp_8Kq2Lp9Rv4Tc7Wb3Yn6Dx1Sg"
+      }
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/srv/honeyd/shared"]
+    }
+  }
+}
+`;
+
+// kubectl against this hits k8s.honeyd.me (our beacon). ca-data and token are decorative.
+const KUBECONFIG = `apiVersion: v1
+kind: Config
+preferences: {}
+clusters:
+- cluster:
+    server: https://k8s.honeyd.me
+    certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUMvakNDQWVhZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFWTVJNd0VRWURWUVFERXdwcmRXSmwKY201bGRHVnpNQjRYRFRJMU1EUXdPVEV3TURBd01Gb1hEVE0xTURRd056RXdNREF3TUZvd0ZURVRNQkVHQTFVRQo=
+  name: honeyd-prod
+contexts:
+- context:
+    cluster: honeyd-prod
+    namespace: default
+    user: deploy
+  name: honeyd-prod
+current-context: honeyd-prod
+users:
+- name: deploy
+  user:
+    token: eyJhbGciOiJSUzI1NiIsImtpZCI6Imhkc3ZjIn0.hd_k8s_Qn7Vb2Mx9Lp4Tc8Wk.Rg3Yd6Sz1Fv0
+`;
+
+// a DB dump that carries the AWS canary in a secrets table — fires when the key is used.
+const SQLDUMP = `-- MySQL dump 10.13  Distrib 8.0.36, for Linux (x86_64)
+--
+-- Host: honeyd-prod.cluster-ro-c7k2x9q8.us-east-2.rds.amazonaws.com    Database: honeyd_prod
+-- ------------------------------------------------------
+-- Server version	8.0.36
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
+/*!40103 SET TIME_ZONE='+00:00' */;
+
+--
+-- Table structure for table \`app_secrets\`
+--
+
+DROP TABLE IF EXISTS \`app_secrets\`;
+CREATE TABLE \`app_secrets\` (
+  \`id\` int NOT NULL AUTO_INCREMENT,
+  \`k\` varchar(64) NOT NULL,
+  \`v\` varchar(255) NOT NULL,
+  PRIMARY KEY (\`id\`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+LOCK TABLES \`app_secrets\` WRITE;
+INSERT INTO \`app_secrets\` VALUES
+ (1,'aws_access_key_id','%%AWS_AKIA%%'),
+ (2,'aws_secret_access_key','%%AWS_SECRET%%'),
+ (3,'aws_region','us-east-2'),
+ (4,'db_password','Hv7kQ2pX9mB4tLwZ'),
+ (5,'mail_password','mg8fK2pL9vX4tBqR');
+UNLOCK TABLES;
+
+/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
+-- Dump completed
+`;
+
 // inject secret values, then drop any line whose value resolved empty
 function fill(tpl, map) {
   let out = tpl;
@@ -88,4 +171,16 @@ export async function renderEnv(env) {
 
 export async function renderCreds(env) {
   return fill(CREDS, await awsMap(env));
+}
+
+export function renderMcpConfig() {
+  return MCP_CONFIG;
+}
+
+export function renderKubeconfig() {
+  return KUBECONFIG;
+}
+
+export async function renderSqlDump(env) {
+  return fill(SQLDUMP, await awsMap(env));
 }

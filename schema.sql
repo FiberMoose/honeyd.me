@@ -18,3 +18,10 @@ CREATE TABLE IF NOT EXISTS key_rotations (
   ts TEXT NOT NULL,
   key_id TEXT NOT NULL
 );
+
+-- beacon subdomain hits: one row per request to mcp./k8s.honeyd.me, with the
+-- full source so we hold the IP even though the canarytokens ping shows our edge.
+CREATE TABLE IF NOT EXISTS canary_hits (
+  ts TEXT, host TEXT, path TEXT, method TEXT, beacon TEXT,
+  ip TEXT, country TEXT, asn TEXT, as_org TEXT, ua TEXT, referer TEXT, colo TEXT
+);
