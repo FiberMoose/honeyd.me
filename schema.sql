@@ -44,6 +44,13 @@ CREATE TABLE IF NOT EXISTS llm_prompts (
   ts TEXT, ip TEXT, api_key TEXT, model TEXT, source TEXT, messages TEXT
 );
 
+-- per-ip + global budget counters for the burner llm relay. strongly consistent
+-- (D1, not KV) so a burst from one ip is actually caught and can't starve others.
+-- bucket = im:<ip>:<min> | id:<ip>:<day> | gm:<min> | gd:<day>; exp is unix ttl.
+CREATE TABLE IF NOT EXISTS llm_rl (
+  bucket TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0, exp INTEGER
+);
+
 -- first-party apex log: every bait grab (.env/.git/dump/actuator/phpinfo/
 -- graphql/cred-files/gcp/ssh/backups) and every 403 probe, with source.
 CREATE TABLE IF NOT EXISTS apex_hits (

@@ -71,27 +71,41 @@ async function relayLlm(env, messages) {
 function fallbackCompletion() {
   return 'Request received. To proceed, specify the operation and any required parameters; I will return the result in the requested format.';
 }
-// Per-IP + global budget so the burner relay stays under the free-tier caps.
-// Only ACTUAL OpenRouter proxy calls are metered; static bait, the canned
-// fallback, and every non-model request are never counted. Over budget -> we
-// skip the outbound call and serve the canned reply, so the attacker can't tell
-// they're throttled. KV sliding window keyed by CF-Connecting-IP; approximate
-// (eventual consistency) is fine for a honeypot, and the global ceiling sits
-// well under the free cap to absorb the read/write race.
-const LLM_LIMITS = { ipMin: 2, ipDay: 8, gMin: 15, gDay: 40 };
+// Per-IP + global budget on the burner relay. Counters live in D1, not KV,
+// because D1 is read-after-write consistent: a burst from one IP is actually
+// caught, so a single hammering agent can't drain the shared daily pool and
+// starve other agents of real completions (KV caches reads ~60s, so a burst
+// leaks straight past the per-IP cap). Only actual OpenRouter proxy calls are
+// metered; a throttled call reads but does NOT increment, so it can't inflate
+// the global count. On any DB error we fail open: the canned fallback still
+// masks, and OpenRouter's own free cap plus no-CC are the hard backstop.
+const LLM_LIMITS = { ipMin: 2, ipDay: 6, gMin: 12, gDay: 40 };
 const dayStamp = () => new Date().toISOString().slice(0, 10).replace(/-/g, '');
-async function kvNum(env, k) { try { const v = await env.BAIT.get(k); return v ? (parseInt(v, 10) || 0) : 0; } catch { return 0; } }
-async function kvBump(env, k, ttl) { try { await env.BAIT.put(k, String((await kvNum(env, k)) + 1), { expirationTtl: ttl }); } catch {} }
 async function llmGate(env, ip) {
-  if (!env || !env.BAIT) return true; // no KV binding -> don't block (fallback still masks)
-  const min = Math.floor(Date.now() / 60000), day = dayStamp();
-  const id = (ip || 'noip').replace(/[^0-9a-fA-F:.]/g, '').slice(0, 45) || 'noip';
-  const kim = `llm_rl:im:${id}:${min}`, kid = `llm_rl:id:${id}:${day}`, kgm = `llm_rl:gm:${min}`, kgd = `llm_rl:gd:${day}`;
-  const [a, b, c, d] = await Promise.all([kvNum(env, kim), kvNum(env, kid), kvNum(env, kgm), kvNum(env, kgd)]);
-  if (a >= LLM_LIMITS.ipMin || b >= LLM_LIMITS.ipDay || c >= LLM_LIMITS.gMin || d >= LLM_LIMITS.gDay) return false;
-  // reserve the slot before the call so concurrent requests can't all pass
-  await Promise.all([kvBump(env, kim, 120), kvBump(env, kid, 172800), kvBump(env, kgm, 120), kvBump(env, kgd, 172800)]);
-  return true;
+  if (!env || !env.DB) return true;
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const minB = Math.floor(now / 60), day = dayStamp();
+    const id = (ip || 'noip').replace(/[^0-9a-fA-F:.]/g, '').slice(0, 45) || 'noip';
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS llm_rl (bucket TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0, exp INTEGER)').run();
+    const buckets = [
+      ['im:' + id + ':' + minB, LLM_LIMITS.ipMin, now + 120],
+      ['id:' + id + ':' + day, LLM_LIMITS.ipDay, now + 172800],
+      ['gm:' + minB, LLM_LIMITS.gMin, now + 120],
+      ['gd:' + day, LLM_LIMITS.gDay, now + 172800],
+    ];
+    const names = buckets.map((b) => b[0]);
+    const ph = names.map((_, i) => '?' + (i + 1)).join(',');
+    const res = await env.DB.prepare('SELECT bucket, n FROM llm_rl WHERE bucket IN (' + ph + ')').bind(...names).all();
+    const counts = {};
+    for (const r of (res.results || [])) counts[r.bucket] = r.n;
+    // read-only check first: a throttled call must not consume (inflate) any bucket
+    for (const [b, lim] of buckets) if ((counts[b] || 0) >= lim) return false;
+    // under budget: reserve every bucket atomically in one transaction
+    await env.DB.batch(buckets.map(([b, , exp]) => env.DB.prepare('INSERT INTO llm_rl (bucket, n, exp) VALUES (?1, 1, ?2) ON CONFLICT(bucket) DO UPDATE SET n = n + 1').bind(b, exp)));
+    if (Math.random() < 0.02) { try { await env.DB.prepare('DELETE FROM llm_rl WHERE exp < ?1').bind(now).run(); } catch {} }
+    return true;
+  } catch { return true; }
 }
 
 async function persistLlm(env, r) {
