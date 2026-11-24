@@ -177,9 +177,99 @@ async function credFiles(env) {
     // backups (small believable stubs; real archives would be large)
     '/backup.sql': () => `-- records_prod backup\nINSERT INTO app_secrets VALUES (1,'records_api_key','${INTERNAL_KEY}'),(2,'aws_access_key_id','${c.akia}');\n`,
     '/database_backup.sql': () => `-- records_prod backup\nINSERT INTO app_secrets VALUES (1,'records_api_key','${INTERNAL_KEY}'),(2,'aws_access_key_id','${c.akia}');\n`,
+    // CI / deploy pipeline configs (carry deploy + registry secrets)
+    '/.github/workflows/main.yml': () => `name: deploy\non: { push: { branches: [main] } }\nenv:\n  AWS_ACCESS_KEY_ID: ${c.akia}\n  AWS_SECRET_ACCESS_KEY: ${c.asecret}\n  RECORDS_API_KEY: ${INTERNAL_KEY}\n  RECORDS_API_URL: ${INTERNAL_URL}\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: aws s3 sync ./dist s3://records-prod-data-271943\n`,
+    '/.gitlab-ci.yml': () => `variables:\n  AWS_ACCESS_KEY_ID: "${c.akia}"\n  AWS_SECRET_ACCESS_KEY: "${c.asecret}"\n  RECORDS_API_KEY: "${INTERNAL_KEY}"\ndeploy:\n  stage: deploy\n  script:\n    - curl -H "Authorization: Bearer $RECORDS_API_KEY" ${INTERNAL_URL}/deploy/status\n`,
+    '/Jenkinsfile': () => `pipeline {\n  agent any\n  environment {\n    AWS_ACCESS_KEY_ID = '${c.akia}'\n    RECORDS_API_KEY = '${INTERNAL_KEY}'\n    DB_PASSWORD = '${DB_PASS}'\n  }\n  stages { stage('deploy') { steps { sh 'aws s3 sync dist/ s3://records-prod-data-271943' } } }\n}\n`,
+    '/.drone.yml': () => `kind: pipeline\nname: default\nsteps:\n- name: deploy\n  image: amazon/aws-cli\n  environment:\n    AWS_ACCESS_KEY_ID: ${c.akia}\n    AWS_SECRET_ACCESS_KEY: ${c.asecret}\n    RECORDS_API_KEY: ${INTERNAL_KEY}\n`,
+    '/samconfig.toml': () => `version = 0.1\n[default.deploy.parameters]\nstack_name = "records-gateway"\ns3_bucket = "records-prod-data-271943"\nregion = "us-east-2"\nparameter_overrides = "RecordsApiKey=${INTERNAL_KEY} AwsAccessKeyId=${c.akia}"\n`,
+    // widened cred/config spellings scanners probe that we used to 403
+    '/env': () => `RECORDS_API_URL=${INTERNAL_URL}\nRECORDS_API_KEY=${INTERNAL_KEY}\nAWS_ACCESS_KEY_ID=${c.akia}\nAWS_SECRET_ACCESS_KEY=${c.asecret}\nDB_HOST=${DB_HOST}\nDB_PASSWORD=${DB_PASS}\n`,
+    '/env.js': () => `module.exports = { RECORDS_API_URL: '${INTERNAL_URL}', RECORDS_API_KEY: '${INTERNAL_KEY}', AWS_ACCESS_KEY_ID: '${c.akia}', AWS_SECRET_ACCESS_KEY: '${c.asecret}' };\n`,
+    '/aws/credentials': () => `[default]\naws_access_key_id = ${c.akia}\naws_secret_access_key = ${c.asecret}\nregion = us-east-2\n`,
+    '/config.json': () => JSON.stringify({ recordsApi: { url: INTERNAL_URL, key: INTERNAL_KEY }, aws: { accessKeyId: c.akia, secretAccessKey: c.asecret, region: 'us-east-2' }, db: { host: DB_HOST, user: 'records_app', password: DB_PASS } }, null, 2),
+    '/config.js': () => `export default { recordsApi: { url: '${INTERNAL_URL}', key: '${INTERNAL_KEY}' }, aws: { accessKeyId: '${c.akia}', secretAccessKey: '${c.asecret}' } };\n`,
+    '/config.php': () => `<?php\nreturn ['records_api_url'=>'${INTERNAL_URL}','records_api_key'=>'${INTERNAL_KEY}','aws_access_key_id'=>'${c.akia}','aws_secret_access_key'=>'${c.asecret}','db_password'=>'${DB_PASS}'];\n`,
+    '/settings.json': () => JSON.stringify({ 'records.apiUrl': INTERNAL_URL, 'records.apiKey': INTERNAL_KEY, 'aws.accessKeyId': c.akia, 'aws.secretAccessKey': c.asecret }, null, 2),
+    '/local.settings.json': () => JSON.stringify({ IsEncrypted: false, Values: { AzureWebJobsStorage: 'DefaultEndpointsProtocol=https;AccountName=recordsprod;AccountKey=' + btoa(INTERNAL_KEY).slice(0, 44) + '==;EndpointSuffix=core.windows.net', FUNCTIONS_WORKER_RUNTIME: 'node', RECORDS_API_KEY: INTERNAL_KEY, AWS_ACCESS_KEY_ID: c.akia, AWS_SECRET_ACCESS_KEY: c.asecret } }, null, 2),
+    '/credentials.yml': () => `records_api:\n  url: ${INTERNAL_URL}\n  key: ${INTERNAL_KEY}\naws:\n  access_key_id: ${c.akia}\n  secret_access_key: ${c.asecret}\n  region: us-east-2\n`,
+    // Mercurial dump (completes the git/svn/bzr VCS set)
+    '/.hg/requires': () => `dotencode\nfncache\ngeneraldelta\nrevlogv1\nstore\n`,
+    '/.hg/store/requires': () => `revlogv1\n`,
+    '/.hg/hgrc': () => `[paths]\ndefault = https://hg.records.internal/records-web\n[auth]\nrecords.prefix = hg.records.internal\nrecords.username = records_app\nrecords.password = ${DB_PASS}\n`,
   };
   m['/appsettings.Production.json'] = m['/appsettings.json'];
   return m;
+}
+
+// ---- EC2 instance metadata service (IMDS) ----
+// The SSRF/cloud-cred crowd (same actors abusing the AWS key for Bedrock) pivot
+// through IMDS to lift role credentials. Serve believable metadata whose role
+// creds are the AWS canary, so lifting them trips the tripwire the moment used.
+async function imds(path, method, env) {
+  if (path === '/latest/api/token') return { body: 'AQAEAP' + b64line(rng(4711), 50).replace(/[+/=]/g, 'x'), ct: TEXT_H };
+  if (method !== 'GET') return null;
+  const ROLE = 'records-ec2-role';
+  if (path === '/latest/meta-data/iam/security-credentials/' + ROLE) {
+    const c = await creds(env);
+    return { body: JSON.stringify({ Code: 'Success', LastUpdated: '2026-11-23T20:14:03Z', Type: 'AWS-HMAC', AccessKeyId: c.akia, SecretAccessKey: c.asecret, Token: 'IQoJb3JpZ2luX2Vj' + b64line(rng(9931), 180), Expiration: '2026-11-24T02:14:03Z' }, null, 2), ct: JSON_H };
+  }
+  if (path === '/latest/dynamic/instance-identity/document') {
+    return { body: JSON.stringify({ accountId: '271943558210', region: 'us-east-2', availabilityZone: 'us-east-2b', instanceId: 'i-0a7f2c9d1e3b5a8c0', instanceType: 'm6i.xlarge', imageId: 'ami-0c7f2a3b4d5e6f708', architecture: 'x86_64', pendingTime: '2026-10-02T11:20:41Z', version: '2017-09-30' }, null, 2), ct: JSON_H };
+  }
+  const map = {
+    '/latest/meta-data': 'ami-id\nhostname\niam/\ninstance-id\ninstance-type\nlocal-ipv4\nmac\nplacement/\npublic-ipv4\nreservation-id\nsecurity-groups\n',
+    '/latest/meta-data/iam': 'info\nsecurity-credentials/\n',
+    '/latest/meta-data/iam/security-credentials': ROLE,
+    '/latest/meta-data/iam/info': JSON.stringify({ Code: 'Success', LastUpdated: '2026-11-22T23:41:07Z', InstanceProfileArn: 'arn:aws:iam::271943558210:instance-profile/records-ec2-profile', InstanceProfileId: 'AIPAJ5R2VQ7T3K9W2YH1' }, null, 2),
+    '/latest/meta-data/instance-id': 'i-0a7f2c9d1e3b5a8c0',
+    '/latest/meta-data/instance-type': 'm6i.xlarge',
+    '/latest/meta-data/local-ipv4': '10.0.3.47',
+    '/latest/meta-data/placement/region': 'us-east-2',
+    '/latest/meta-data/security-groups': 'records-app-sg\nrecords-db-sg\n',
+  };
+  if (map[path] != null) return { body: map[path], ct: TEXT_H };
+  if (path.startsWith('/latest/meta-data')) return { body: '', ct: TEXT_H };
+  return null;
+}
+
+// ---- Terraform state (plaintext provider creds + infra inventory) ----
+async function tfstate(env) {
+  const c = await creds(env);
+  const PROV = 'provider["registry.terraform.io/hashicorp/aws"]';
+  return JSON.stringify({
+    version: 4, terraform_version: '1.9.5', serial: 47, lineage: '3f1c0e2a-1b3d-4e5f-6071-8293a4b5c6d7',
+    outputs: {
+      records_api_key: { value: INTERNAL_KEY, type: 'string', sensitive: true },
+      model_gateway_url: { value: INTERNAL_URL, type: 'string' },
+      aws_access_key_id: { value: c.akia, type: 'string', sensitive: true },
+      db_endpoint: { value: DB_HOST + ':3306', type: 'string' },
+    },
+    resources: [
+      { mode: 'managed', type: 'aws_db_instance', name: 'records', provider: PROV, instances: [{ attributes: { address: DB_HOST, engine: 'mysql', username: 'records_app', password: DB_PASS, db_name: 'records_prod', port: 3306 } }] },
+      { mode: 'managed', type: 'aws_s3_bucket', name: 'records_data', provider: PROV, instances: [{ attributes: { bucket: 'records-prod-data-271943', region: 'us-east-2' } }] },
+      { mode: 'managed', type: 'aws_iam_access_key', name: 'deploy', provider: PROV, instances: [{ attributes: { id: c.akia, secret: c.asecret, user: 'records-deploy', status: 'Active' } }] },
+    ],
+  }, null, 2);
+}
+
+// ---- OpenAPI / Swagger spec that advertises the fake API incl. the LLM endpoint ----
+function openApiSpec() {
+  return JSON.stringify({
+    openapi: '3.0.3',
+    info: { title: 'records-gateway', version: '2.4.1', description: 'Internal records + model gateway. Authenticate with a service key: Authorization: Bearer <RECORDS_API_KEY>.' },
+    servers: [{ url: INTERNAL_URL }],
+    components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer' } } },
+    security: [{ bearerAuth: [] }],
+    paths: {
+      '/chat/completions': { post: { summary: 'OpenAI-compatible chat completions via the model gateway', requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { model: { type: 'string' }, messages: { type: 'array', items: { type: 'object' } } } } } } }, responses: { 200: { description: 'completion' } } } },
+      '/records': { get: { summary: 'List records' }, post: { summary: 'Create record' } },
+      '/records/{id}': { get: { summary: 'Get record', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }] } },
+      '/users': { get: { summary: 'List users (admin)' } },
+      '/secrets': { get: { summary: 'Service secrets (tiered)' } },
+      '/vault': { get: { summary: 'Vault secrets (secrets:admin)' } },
+    },
+  }, null, 2);
 }
 
 // text content types per path
@@ -196,7 +286,15 @@ export async function handleDecoy(request, env) {
   const method = request.method;
 
   if (method === 'POST' && GQL_RE.test(path)) return { response: await graphql(request, env), label: 'graphql' };
+  // EC2 IMDS (handles GET subpaths + the IMDSv2 PUT token, so before the GET gate)
+  if (path === '/latest/api/token' || path.startsWith('/latest/')) {
+    const r = await imds(path, method, env);
+    if (r) return { response: R(r.body, r.ct), label: 'imds:' + path };
+  }
   if (method !== 'GET') return null;
+
+  if (path === '/terraform.tfstate' || path === '/terraform.tfstate.backup' || path === '/.terraform/terraform.tfstate') return { response: R(await tfstate(env), JSON_H), label: 'tfstate:' + path };
+  if (path === '/openapi.json' || path === '/swagger.json' || path === '/swagger/v1/swagger.json' || path === '/v3/api-docs' || path === '/api-docs' || path === '/api/openapi.json') return { response: R(openApiSpec(), JSON_H), label: 'openapi:' + path };
 
   if (ACTUATOR[path]) return { response: R(await ACTUATOR[path](env), path === '/actuator/heapdump' ? TEXT_H : JSON_H), label: 'actuator:' + path };
   if (PHPINFO_RE.test(path)) return { response: R(await phpinfo(env), HTML_H), label: 'phpinfo:' + path };

@@ -16,7 +16,7 @@ import {
   TEXT_HEADERS, JSON_HEADERS,
 } from './_shared/bait.js';
 import { handleMcp } from './_shared/mcp.js';
-import { handleApi } from './_shared/api.js';
+import { handleApi, handleLlm } from './_shared/api.js';
 import { handleDecoy } from './_shared/decoys.js';
 
 const PASS = new Set([
@@ -219,6 +219,21 @@ export async function onRequest(ctx) {
     waitUntil(forwardHit(env, row));
     if (decoy.alert && beaconKey !== 'apex') waitUntil(pingBeacon(env, beaconKey, m));
     return decoy.response;
+  }
+
+  // LLM completion endpoints on ANY host (apex included): a key-checker that
+  // tries a harvested key here lands in the prompt trap. handleLlm returns null
+  // for non-LLM POSTs without reading the body, so other handlers still can.
+  if (request.method === 'POST') {
+    const m = hitMeta(request);
+    const llm = await handleLlm(request, env, m);
+    if (llm) {
+      const full = { host, client: m.ua, ...m, ...llm.row };
+      waitUntil(logApiHit(env, full));
+      waitUntil(forwardHit(env, { host, beacon: beaconKey, path: llm.row.path + ' [llm]', method: 'POST', status: llm.row.status, ip: m.ip, country: m.country, asn: m.asn, as_org: m.as_org, ua: m.ua }));
+      if (llm.alert && beaconKey !== 'apex') waitUntil(pingBeacon(env, beaconKey, m));
+      return llm.response;
+    }
   }
 
   if (host === 'mcp.honeyd.me') return mcpHost(ctx);

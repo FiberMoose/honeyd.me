@@ -118,6 +118,47 @@ async function persistLlm(env, r) {
   } catch {}
 }
 
+// Shared LLM-completion handler. Used by handleApi (internal-api host) AND by
+// _middleware on the apex + every other host, so the OpenAI/Anthropic/Azure
+// endpoints a key-checker probes all land here and leave their prompt. `pre`
+// carries an already-read body when the caller read it; otherwise we read it.
+const LLM_RE = /^\/(v1\/chat\/completions|chat\/completions|v1\/completions|v1\/messages|openai\/deployments\/[^/]+\/chat\/completions)$/;
+export async function handleLlm(request, env, m, pre) {
+  const url = new URL(request.url);
+  const path = (pre && pre.path) || (url.pathname.replace(/\/+$/, '') || '/');
+  const method = (pre && pre.method) || request.method;
+  if (method !== 'POST' || !LLM_RE.test(path)) return null;
+  const h = request.headers;
+  let body = pre ? pre.body : '';
+  if (!pre) { try { body = (await request.text()).slice(0, 4000); } catch {} }
+  const k = llmKey(h.get('Authorization')) || llmKey(h.get('x-api-key')) || llmKey(h.get('api-key'));
+  const row = { path, method: 'POST', query: '', tier: 'llm', key: k, status: 200, body: body.slice(0, 1500) };
+  const done = (resp, alert) => { row.status = resp.status; return { response: resp, row, alert: !!alert }; };
+  if (!k) return done(err(401, 'invalid_api_key', 'Incorrect API key provided.', { 'WWW-Authenticate': 'Bearer' }), false);
+  let p = {}; try { p = JSON.parse(body || '{}'); } catch {}
+  const isAnthropic = /\/v1\/messages$/.test(path);
+  let messages = Array.isArray(p.messages) ? p.messages : (p.prompt != null ? [{ role: 'user', content: String(p.prompt) }] : []);
+  if (isAnthropic && p.system) messages = [{ role: 'system', content: typeof p.system === 'string' ? p.system : JSON.stringify(p.system) }, ...messages];
+  const model = p.model || (isAnthropic ? 'claude-3-5-sonnet-20241022' : 'gpt-4o');
+  const base = await secret(env, 'llm_relay_base');
+  let relayed = null, source = 'fallback';
+  if (base) {
+    if (await llmGate(env, m && m.ip)) { relayed = await relayLlm(env, messages); source = relayed != null ? 'relay' : 'relay_failed'; }
+    else source = 'fallback_throttled';
+  }
+  const content = relayed != null ? relayed : fallbackCompletion();
+  if (relayed == null && base) await new Promise((r) => setTimeout(r, 350 + Math.floor(Math.random() * 850)));
+  await persistLlm(env, { ip: m && m.ip, key: k, model, source, messages: JSON.stringify(messages) });
+  const now = Math.floor(Date.now() / 1000);
+  const ptok = Math.max(1, JSON.stringify(messages).length >> 2);
+  const ctok = Math.max(1, content.length >> 2);
+  let resp;
+  if (isAnthropic) resp = { id: 'msg_' + h32(body + now).toString(36), type: 'message', role: 'assistant', model, content: [{ type: 'text', text: content }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: ptok, output_tokens: ctok } };
+  else if (/\/v1\/completions$/.test(path)) resp = { id: 'cmpl-' + h32(body + now).toString(36), object: 'text_completion', created: now, model, choices: [{ text: content, index: 0, logprobs: null, finish_reason: 'stop' }], usage: { prompt_tokens: ptok, completion_tokens: ctok, total_tokens: ptok + ctok } };
+  else resp = { id: 'chatcmpl-' + h32(body + now).toString(36), object: 'chat.completion', created: now, model, choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { prompt_tokens: ptok, completion_tokens: ctok, total_tokens: ptok + ctok } };
+  return done(jsonResp(resp), true);
+}
+
 // returns { response, row, alert }
 export async function handleApi(request, env, m) {
   const url = new URL(request.url);
@@ -150,34 +191,10 @@ export async function handleApi(request, env, m) {
     return done(jsonResp({ status: 'pending_verification', batch_token: 'bt_' + h32(body + Date.now()).toString(36), note: 'A verification link was sent to the operator contact. Batch export unlocks once confirmed.', operator: p.operator || null }), true);
   }
 
-  // OpenAI-compatible LLM endpoints: the honeypot's whole reason to exist for a
-  // key-abuse bot. accept any plausible harvested key, log the prompt, relay for
-  // a real answer when a burner is wired, else a safe generic reply.
-  if ((path === '/v1/chat/completions' || path === '/chat/completions' || path === '/v1/completions') && method === 'POST') {
-    const k = llmKey(auth);
-    if (!k) return done(err(401, 'invalid_api_key', 'Incorrect API key provided.', { 'WWW-Authenticate': 'Bearer' }), false);
-    let p = {}; try { p = JSON.parse(body || '{}'); } catch {}
-    const messages = Array.isArray(p.messages) ? p.messages : (p.prompt != null ? [{ role: 'user', content: String(p.prompt) }] : []);
-    const model = p.model || 'gpt-4o';
-    const base = await secret(env, 'llm_relay_base');
-    let relayed = null, source = 'fallback';
-    if (base) {
-      if (await llmGate(env, m && m.ip)) { relayed = await relayLlm(env, messages); source = relayed != null ? 'relay' : 'relay_failed'; }
-      else source = 'fallback_throttled';
-    }
-    const content = relayed != null ? relayed : fallbackCompletion();
-    // mask the throttle/relay-fail path so a canned reply isn't suspiciously instant vs a real model call
-    if (relayed == null && base) await new Promise((r) => setTimeout(r, 350 + Math.floor(Math.random() * 850)));
-    await persistLlm(env, { ip: m && m.ip, key: k, model, source, messages: JSON.stringify(messages) });
-    row.key = k; row.tier = 'llm';
-    const now = Math.floor(Date.now() / 1000);
-    const ptok = Math.max(1, JSON.stringify(messages).length >> 2);
-    const ctok = Math.max(1, content.length >> 2);
-    const resp = path === '/v1/completions'
-      ? { id: 'cmpl-' + h32(body + now).toString(36), object: 'text_completion', created: now, model, choices: [{ text: content, index: 0, logprobs: null, finish_reason: 'stop' }], usage: { prompt_tokens: ptok, completion_tokens: ctok, total_tokens: ptok + ctok } }
-      : { id: 'chatcmpl-' + h32(body + now).toString(36), object: 'chat.completion', created: now, model, choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { prompt_tokens: ptok, completion_tokens: ctok, total_tokens: ptok + ctok } };
-    return done(jsonResp(resp), true);
-  }
+  // LLM completion endpoints (OpenAI / Anthropic / Azure) — shared handler, also
+  // called by _middleware on the apex + other hosts so a harvested key lands in
+  // the prompt trap wherever a key-checker tries it.
+  { const llm = await handleLlm(request, env, m, { body, path, method }); if (llm) return llm; }
 
   if (!info) return done(err(401, 'invalid_credentials', 'Missing or invalid API key.', { 'WWW-Authenticate': 'Bearer realm="records-gateway"' }), false);
   const tier = info.tier;
