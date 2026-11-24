@@ -57,7 +57,7 @@ async function relayLlm(env, messages) {
     const base = await secret(env, 'llm_relay_base');
     if (!base) return null;
     const key = await secret(env, 'llm_relay_key');
-    const model = (await secret(env, 'llm_relay_model')) || 'meta-llama/llama-3.1-8b-instruct';
+    const model = (await secret(env, 'llm_relay_model')) || 'nvidia/nemotron-3.5-super-vl:free';
     const r = await fetch(base.replace(/\/+$/, '') + '/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key, 'HTTP-Referer': 'https://records.internal', 'X-Title': 'records-gateway' },
@@ -71,6 +71,29 @@ async function relayLlm(env, messages) {
 function fallbackCompletion() {
   return 'Request received. To proceed, specify the operation and any required parameters; I will return the result in the requested format.';
 }
+// Per-IP + global budget so the burner relay stays under the free-tier caps.
+// Only ACTUAL OpenRouter proxy calls are metered; static bait, the canned
+// fallback, and every non-model request are never counted. Over budget -> we
+// skip the outbound call and serve the canned reply, so the attacker can't tell
+// they're throttled. KV sliding window keyed by CF-Connecting-IP; approximate
+// (eventual consistency) is fine for a honeypot, and the global ceiling sits
+// well under the free cap to absorb the read/write race.
+const LLM_LIMITS = { ipMin: 2, ipDay: 8, gMin: 15, gDay: 40 };
+const dayStamp = () => new Date().toISOString().slice(0, 10).replace(/-/g, '');
+async function kvNum(env, k) { try { const v = await env.BAIT.get(k); return v ? (parseInt(v, 10) || 0) : 0; } catch { return 0; } }
+async function kvBump(env, k, ttl) { try { await env.BAIT.put(k, String((await kvNum(env, k)) + 1), { expirationTtl: ttl }); } catch {} }
+async function llmGate(env, ip) {
+  if (!env || !env.BAIT) return true; // no KV binding -> don't block (fallback still masks)
+  const min = Math.floor(Date.now() / 60000), day = dayStamp();
+  const id = (ip || 'noip').replace(/[^0-9a-fA-F:.]/g, '').slice(0, 45) || 'noip';
+  const kim = `llm_rl:im:${id}:${min}`, kid = `llm_rl:id:${id}:${day}`, kgm = `llm_rl:gm:${min}`, kgd = `llm_rl:gd:${day}`;
+  const [a, b, c, d] = await Promise.all([kvNum(env, kim), kvNum(env, kid), kvNum(env, kgm), kvNum(env, kgd)]);
+  if (a >= LLM_LIMITS.ipMin || b >= LLM_LIMITS.ipDay || c >= LLM_LIMITS.gMin || d >= LLM_LIMITS.gDay) return false;
+  // reserve the slot before the call so concurrent requests can't all pass
+  await Promise.all([kvBump(env, kim, 120), kvBump(env, kid, 172800), kvBump(env, kgm, 120), kvBump(env, kgd, 172800)]);
+  return true;
+}
+
 async function persistLlm(env, r) {
   if (!env.DB) return;
   try {
@@ -122,9 +145,16 @@ export async function handleApi(request, env, m) {
     let p = {}; try { p = JSON.parse(body || '{}'); } catch {}
     const messages = Array.isArray(p.messages) ? p.messages : (p.prompt != null ? [{ role: 'user', content: String(p.prompt) }] : []);
     const model = p.model || 'gpt-4o';
-    const relayed = await relayLlm(env, messages);
+    const base = await secret(env, 'llm_relay_base');
+    let relayed = null, source = 'fallback';
+    if (base) {
+      if (await llmGate(env, m && m.ip)) { relayed = await relayLlm(env, messages); source = relayed != null ? 'relay' : 'relay_failed'; }
+      else source = 'fallback_throttled';
+    }
     const content = relayed != null ? relayed : fallbackCompletion();
-    await persistLlm(env, { ip: m && m.ip, key: k, model, source: relayed != null ? 'relay' : 'fallback', messages: JSON.stringify(messages) });
+    // mask the throttle/relay-fail path so a canned reply isn't suspiciously instant vs a real model call
+    if (relayed == null && base) await new Promise((r) => setTimeout(r, 350 + Math.floor(Math.random() * 850)));
+    await persistLlm(env, { ip: m && m.ip, key: k, model, source, messages: JSON.stringify(messages) });
     row.key = k; row.tier = 'llm';
     const now = Math.floor(Date.now() / 1000);
     const ptok = Math.max(1, JSON.stringify(messages).length >> 2);
