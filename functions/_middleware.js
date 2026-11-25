@@ -16,6 +16,7 @@ import {
   TEXT_HEADERS, JSON_HEADERS,
 } from './_shared/bait.js';
 import { handleMcp } from './_shared/mcp.js';
+import { handleK8s } from './_shared/k8s.js';
 import { handleApi, handleLlm } from './_shared/api.js';
 import { handleDecoy } from './_shared/decoys.js';
 
@@ -190,6 +191,19 @@ async function mcpHost(ctx) {
   return response;
 }
 
+// the beacon host that speaks (fake) Kubernetes API
+async function k8sHost(ctx) {
+  const { request, env, waitUntil } = ctx;
+  const m = hitMeta(request);
+  const { response, logPath, alert } = await handleK8s(request, env);
+  const row = { host: new URL(request.url).hostname, path: logPath, method: request.method, beacon: 'beacon_k8s', ...m };
+  waitUntil(logHit(env, row));
+  waitUntil(forwardHit(env, row));
+  // email only when the planted token is actually used (authed / secret pulled)
+  if (alert) waitUntil(pingBeacon(env, 'beacon_k8s', m));
+  return response;
+}
+
 function beaconHost(ctx, beaconKey, body, status, alertRe) {
   const { request, env, waitUntil } = ctx;
   const url = new URL(request.url);
@@ -237,7 +251,7 @@ export async function onRequest(ctx) {
   }
 
   if (host === 'mcp.honeyd.me') return mcpHost(ctx);
-  if (host === 'k8s.honeyd.me') return beaconHost(ctx, 'beacon_k8s', K8S_401, 401, K8S_ALERT_RE);
+  if (host === 'k8s.honeyd.me') return k8sHost(ctx);
   if (host === 'internal-api.honeyd.me') return internalApiHost(ctx);
 
   const path = (url.pathname.replace(/\/+$/, '')) || '/';

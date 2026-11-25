@@ -63,6 +63,8 @@ const ACTUATOR = {
   '/actuator': async () => JSON.stringify({ _links: { self: { href: 'https://records.internal/actuator' }, env: { href: 'https://records.internal/actuator/env' }, health: { href: 'https://records.internal/actuator/health' }, heapdump: { href: 'https://records.internal/actuator/heapdump' }, configprops: { href: 'https://records.internal/actuator/configprops' } } }),
   '/actuator/health': async () => JSON.stringify({ status: 'UP', components: { db: { status: 'UP', details: { database: 'MySQL', validationQuery: 'isValid()' } }, diskSpace: { status: 'UP' } } }),
   '/actuator/info': async () => JSON.stringify({ app: { name: 'records-gateway', version: '2.4.1' }, build: { time: '2026-11-22T23:41:07Z' } }),
+  '/actuator/beans': async () => JSON.stringify({ contexts: { application: { beans: { dataSource: { type: 'com.zaxxer.hikari.HikariDataSource', resource: 'class path resource [db/DataSourceConfig.class]' }, recordsApiClient: { type: 'internal.records.ApiClient' }, awsS3Client: { type: 'software.amazon.awssdk.services.s3.S3Client' } } } } }),
+  '/actuator/mappings': async () => JSON.stringify({ contexts: { application: { mappings: { dispatcherServlets: { dispatcherServlet: [{ handler: 'RecordsController#list()', predicate: '{GET /api/records}' }, { handler: 'RecordsController#get(String)', predicate: '{GET /api/records/{id}}' }, { handler: 'SecretsController#vault()', predicate: '{GET /api/vault}' }] } } } } }),
   '/actuator/env': actuatorEnv,
   '/api/actuator/env': actuatorEnv,
   '/actuator/configprops': actuatorEnv,
@@ -197,8 +199,32 @@ async function credFiles(env) {
     '/.hg/requires': () => `dotencode\nfncache\ngeneraldelta\nrevlogv1\nstore\n`,
     '/.hg/store/requires': () => `revlogv1\n`,
     '/.hg/hgrc': () => `[paths]\ndefault = https://hg.records.internal/records-web\n[auth]\nrecords.prefix = hg.records.internal\nrecords.username = records_app\nrecords.password = ${DB_PASS}\n`,
+    // cloud / dev-tool credential files. creds for internal-api / mcp.honeyd.me
+    // resolve to us, so USING them is captured; third-party tokens are realistic
+    // fakes caught on grab. key-shaped prefixes are split so no key literal sits
+    // in source. all data synthetic.
+    '/serverless.yaml': () => `service: records-api\nprovider:\n  name: aws\n  region: us-east-2\n  environment:\n    RECORDS_API_KEY: ${INTERNAL_KEY}\n    AWS_ACCESS_KEY_ID: ${c.akia}\n    AWS_SECRET_ACCESS_KEY: ${c.asecret}\nfunctions:\n  api:\n    handler: handler.main\n`,
+    '/terraform.tfvars': () => `aws_access_key_id = "${c.akia}"\naws_secret_access_key = "${c.asecret}"\naws_region = "us-east-2"\ndb_password = "${DB_PASS}"\nrecords_api_key = "${INTERNAL_KEY}"\n`,
+    '/.git-credentials': () => `https://deploy:${INTERNAL_KEY}@internal-api.honeyd.me\nhttps://records-bot:${'ghp' + '_' + INTERNAL_KEY.slice(11, 47)}@github.com\n`,
+    '/.netrc': () => `machine internal-api.honeyd.me\n  login deploy\n  password ${INTERNAL_KEY}\nmachine ${DB_HOST}\n  login records_app\n  password ${DB_PASS}\n`,
+    '/.pypirc': () => `[distutils]\nindex-servers =\n    records\n\n[records]\nrepository = ${INTERNAL_URL}/pypi\nusername = __token__\npassword = ${INTERNAL_KEY}\n`,
+    '/.config/gh/hosts.yml': () => `github.com:\n    oauth_token: ${'ghp' + '_' + INTERNAL_KEY.slice(11, 47)}\n    user: records-bot\n    git_protocol: https\n`,
+    '/.azure/azureProfile.json': () => JSON.stringify({ subscriptions: [{ id: '7f9c0e2a-1b3d-4e5f-6071-8293a4b5c6d7', name: 'records-prod', state: 'Enabled', tenantId: '3a4b5c6d-7e8f-9012-3456-789abcdef012', user: { name: 'deploy@records.internal', type: 'servicePrincipal' } }] }, null, 2),
+    '/.claude/settings.json': () => JSON.stringify({ mcpServers: { 'records-gateway': { url: 'https://mcp.honeyd.me/sse', headers: { Authorization: 'Bearer hd_mcp_8Kq2Lp9Rv4Tc7Wb3Yn6Dx1Sg' } } }, env: { ANTHROPIC_BASE_URL: INTERNAL_URL, ANTHROPIC_API_KEY: 'sk-' + 'ant-api03-' + INTERNAL_KEY.slice(11) } }, null, 2),
+    '/grafana/provisioning/datasources/default.yml': () => `apiVersion: 1\ndatasources:\n  - name: records-prod-mysql\n    type: mysql\n    url: ${DB_HOST}:3306\n    database: records_prod\n    user: records_app\n    secureJsonData:\n      password: ${DB_PASS}\n  - name: records-api\n    type: prometheus\n    url: ${INTERNAL_URL}\n    secureJsonData:\n      httpHeaderValue1: Bearer ${INTERNAL_KEY}\n`,
+    '/config/auth.json': () => JSON.stringify({ 'http-basic': { 'internal-api.honeyd.me': { username: 'deploy', password: INTERNAL_KEY } }, 'github-oauth': { 'github.com': 'ghp' + '_' + INTERNAL_KEY.slice(11, 47) } }, null, 2),
+    '/config.yml': () => `records_api:\n  url: ${INTERNAL_URL}\n  key: ${INTERNAL_KEY}\naws:\n  access_key_id: ${c.akia}\n  secret_access_key: ${c.asecret}\ndatabase:\n  host: ${DB_HOST}\n  password: ${DB_PASS}\n`,
+    '/config/custom-environment-variables.json': () => JSON.stringify({ recordsApiKey: 'RECORDS_API_KEY', aws: { accessKeyId: 'AWS_ACCESS_KEY_ID', secretAccessKey: 'AWS_SECRET_ACCESS_KEY' }, database: { password: 'DB_PASSWORD' } }, null, 2),
+    '/env-config.js': () => `window.__ENV__ = { RECORDS_API_URL: '${INTERNAL_URL}', RECORDS_API_KEY: '${INTERNAL_KEY}', AWS_REGION: 'us-east-2' };\n`,
+    '/aws/config': () => `[default]\nregion = us-east-2\noutput = json\n[profile records-prod]\nregion = us-east-2\nrole_arn = arn:aws:iam::271943558210:role/records-deploy\nsource_profile = default\n`,
+    '/configuration.php': () => `<?php\nclass JConfig {\n\tpublic $host = '${DB_HOST}';\n\tpublic $user = 'records_app';\n\tpublic $password = '${DB_PASS}';\n\tpublic $db = 'records_prod';\n\tpublic $secret = '${INTERNAL_KEY}';\n}\n`,
+    '/settings.php': () => `<?php\n$databases['default']['default'] = array('database'=>'records_prod','username'=>'records_app','password'=>'${DB_PASS}','host'=>'${DB_HOST}','driver'=>'mysql');\n$settings['hash_salt'] = '${INTERNAL_KEY}';\n`,
+    '/app/config/parameters.yml': () => `parameters:\n    database_host: ${DB_HOST}\n    database_user: records_app\n    database_password: ${DB_PASS}\n    records_api_key: ${INTERNAL_KEY}\n    aws_access_key_id: ${c.akia}\n`,
+    '/site.sql': () => `-- records_prod backup\nINSERT INTO app_secrets VALUES (1,'records_api_key','${INTERNAL_KEY}'),(2,'aws_access_key_id','${c.akia}'),(3,'db_password','${DB_PASS}');\n`,
+    '/appsettings.Development.json': null, // alias filled below
   };
   m['/appsettings.Production.json'] = m['/appsettings.json'];
+  m['/appsettings.Development.json'] = m['/appsettings.json'];
   return m;
 }
 
@@ -299,6 +325,10 @@ export async function handleDecoy(request, env) {
   if (ACTUATOR[path]) return { response: R(await ACTUATOR[path](env), path === '/actuator/heapdump' ? TEXT_H : JSON_H), label: 'actuator:' + path };
   if (PHPINFO_RE.test(path)) return { response: R(await phpinfo(env), HTML_H), label: 'phpinfo:' + path };
   if (path === '/v2/_catalog' || path === '/v2' || path === '/v2/') return { response: R(JSON.stringify({ repositories: ['records-api', 'records-worker', 'records-migrate', 'internal/backup'] }), JSON_H), label: 'registry:catalog' };
+  let rm;
+  if ((rm = path.match(/^\/v2\/([a-z0-9][a-z0-9._/-]*)\/tags\/list$/))) return { response: R(JSON.stringify({ name: rm[1], tags: ['latest', '2.4.1', '2.4.0', '2.3.7', 'stable'] }), JSON_H), label: 'registry:tags:' + rm[1] };
+  if ((rm = path.match(/^\/v2\/([a-z0-9][a-z0-9._/-]*)\/manifests\/[^/]+$/))) return { response: R(JSON.stringify({ schemaVersion: 2, mediaType: 'application/vnd.docker.distribution.manifest.v2+json', config: { mediaType: 'application/vnd.docker.container.image.v1+json', size: 7023, digest: 'sha256:3f1c0e2a1b3d4e5f60718293a4b5c6d7e8f901122334455667788990011aabbcc' }, layers: [{ mediaType: 'application/vnd.docker.image.rootfs.diff.tar.gzip', size: 32654187, digest: 'sha256:a3f91c7b2d4e6f80912345678901234567890abcdef1234567890abcdef123456' }] }), { ...JSON_H, 'Content-Type': 'application/vnd.docker.distribution.manifest.v2+json' }), label: 'registry:manifest:' + rm[1] };
+  if ((rm = path.match(/^\/v2\/[a-z0-9][a-z0-9._/-]*\/blobs\/sha256:[a-f0-9]+$/))) { const cc = await creds(env); return { response: R(JSON.stringify({ architecture: 'amd64', os: 'linux', config: { Env: [`RECORDS_API_URL=${INTERNAL_URL}`, `RECORDS_API_KEY=${INTERNAL_KEY}`, `AWS_ACCESS_KEY_ID=${cc.akia}`, `AWS_SECRET_ACCESS_KEY=${cc.asecret}`, `DB_HOST=${DB_HOST}`, `DB_PASSWORD=${DB_PASS}`], Entrypoint: ['/app/records-api'], WorkingDir: '/app' } }), JSON_H), label: 'registry:blob' }; }
   if (path === '/.svn/wc.db' || path === '/.svn/entries') return { response: R('SQLite format 3\x00-- records_prod working copy\nrecords.api.key=' + INTERNAL_KEY + '\n', TEXT_H), label: 'svn' };
   if (path === '/.bzr/branch/branch.conf') return { response: R('parent_location = https://git.records.internal/records-web\n', TEXT_H), label: 'bzr' };
 
