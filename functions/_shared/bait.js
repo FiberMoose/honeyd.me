@@ -1,10 +1,11 @@
 // Shared renderers for the exposed config files. Secret values come from the
 // edge binding (see ./secret.js); nothing sensitive is stored in the repo.
 import { secret } from './secret.js';
+import { baits } from './baits.js';
 
 const ENV = `APP_NAME=Honeyd
 APP_ENV=production
-APP_KEY=base64:7mQk0y3pL2vH8sZ1nD4rT6uW9xB5cF0aE2jG7hK3lM=
+APP_KEY=%%APP_KEY%%
 APP_DEBUG=false
 APP_URL=https://honeyd.me
 
@@ -15,7 +16,7 @@ DB_HOST=honeyd-prod.cluster-ro-c7k2x9q8.us-east-2.rds.amazonaws.com
 DB_PORT=3306
 DB_DATABASE=honeyd_prod
 DB_USERNAME=honeyd_app
-DB_PASSWORD=Hv7kQ2pX9mB4tLwZ
+DB_PASSWORD=%%DB_PASS%%
 
 AWS_ACCESS_KEY_ID=%%AWS_AKIA%%
 AWS_SECRET_ACCESS_KEY=%%AWS_SECRET%%
@@ -23,14 +24,14 @@ AWS_DEFAULT_REGION=us-east-2
 AWS_BUCKET=honeyd-prod-assets
 
 INTERNAL_API_URL=https://internal-api.honeyd.me/v1
-INTERNAL_API_KEY=hd_live_sk_8Fq2Lp9Rv4Tc7Wb3Yn6Dx1Sg5Hm0Kj
+INTERNAL_API_KEY=%%RECORDS_KEY%%
 WEBHOOK_URL=https://internal-api.honeyd.me/hooks/T0AB12CD3/B0EF45GH6/Zx9KdLm3Qr7Tv2Wp8Yb4Nc6
 
 MAIL_MAILER=smtp
 MAIL_HOST=smtp.mailgun.org
 MAIL_PORT=587
 MAIL_USERNAME=postmaster@honeyd.me
-MAIL_PASSWORD=mg8fK2pL9vX4tBqR
+MAIL_PASSWORD=%%MAIL_PASS%%
 
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
@@ -83,7 +84,7 @@ const MCP_CONFIG = `{
     "records-gateway": {
       "url": "https://mcp.honeyd.me/sse",
       "headers": {
-        "Authorization": "Bearer hd_mcp_8Kq2Lp9Rv4Tc7Wb3Yn6Dx1Sg"
+        "Authorization": "Bearer %%MCP_KEY%%"
       }
     },
     "filesystem": {
@@ -113,7 +114,7 @@ current-context: honeyd-prod
 users:
 - name: deploy
   user:
-    token: eyJhbGciOiJSUzI1NiIsImtpZCI6Imhkc3ZjIn0.hd_k8s_Qn7Vb2Mx9Lp4Tc8Wk.Rg3Yd6Sz1Fv0
+    token: %%K8S_TOKEN%%
 `;
 
 // a DB dump that carries the AWS canary in a secrets table — fires when the key is used.
@@ -144,8 +145,8 @@ INSERT INTO \`app_secrets\` VALUES
  (1,'aws_access_key_id','%%AWS_AKIA%%'),
  (2,'aws_secret_access_key','%%AWS_SECRET%%'),
  (3,'aws_region','us-east-2'),
- (4,'db_password','Hv7kQ2pX9mB4tLwZ'),
- (5,'mail_password','mg8fK2pL9vX4tBqR');
+ (4,'db_password','%%DB_PASS%%'),
+ (5,'mail_password','%%MAIL_PASS%%');
 UNLOCK TABLES;
 
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -156,32 +157,39 @@ UNLOCK TABLES;
 function fill(tpl, map) {
   let out = tpl;
   for (const [k, v] of Object.entries(map)) out = out.split(k).join(v);
-  return out.split('\n').filter((l) => !/=\s*$/.test(l)).join('\n');
+  // drop only lines whose value resolved empty (KEY= ), not values that happen to
+  // end in '=' such as base64 padding (KEY=....==)
+  return out.split('\n').filter((l) => !/^[^=\n]*=\s*$/.test(l)).join('\n');
 }
 
-async function awsMap(env) {
+// Real canary (aws_akia/secret, KV) + fake bait values (records/db/mail/app/mcp/
+// k8s, from KV via baits) all injected at request time. No secret-shaped literal
+// lives in this file.
+async function fillMap(env) {
+  const [akia, asecret, b] = await Promise.all([secret(env, 'aws_akia'), secret(env, 'aws_secret'), baits(env)]);
   return {
-    '%%AWS_AKIA%%': await secret(env, 'aws_akia'),
-    '%%AWS_SECRET%%': await secret(env, 'aws_secret'),
+    '%%AWS_AKIA%%': akia, '%%AWS_SECRET%%': asecret,
+    '%%RECORDS_KEY%%': b.records, '%%DB_PASS%%': b.db, '%%MAIL_PASS%%': b.mail,
+    '%%APP_KEY%%': b.app, '%%MCP_KEY%%': b.mcp, '%%K8S_TOKEN%%': b.k8s,
   };
 }
 
 export async function renderEnv(env) {
-  return fill(ENV, await awsMap(env));
+  return fill(ENV, await fillMap(env));
 }
 
 export async function renderCreds(env) {
-  return fill(CREDS, await awsMap(env));
+  return fill(CREDS, await fillMap(env));
 }
 
-export function renderMcpConfig() {
-  return MCP_CONFIG;
+export async function renderMcpConfig(env) {
+  return fill(MCP_CONFIG, await fillMap(env));
 }
 
-export function renderKubeconfig() {
-  return KUBECONFIG;
+export async function renderKubeconfig(env) {
+  return fill(KUBECONFIG, await fillMap(env));
 }
 
 export async function renderSqlDump(env) {
-  return fill(SQLDUMP, await awsMap(env));
+  return fill(SQLDUMP, await fillMap(env));
 }

@@ -1,11 +1,12 @@
 // Serves /private/admin-config.json with the API key injected from the edge binding
 // at request time, so the value is not stored in the repo. Other /private/ assets are static.
 import { secret } from '../_shared/secret.js';
+import { baits } from '../_shared/baits.js';
 
 const HEADERS = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' };
 
 async function cfg(env) {
-  const key = await secret(env, 'bedrock_key');
+  const [key, b] = await Promise.all([secret(env, 'bedrock_key'), baits(env)]);
   return {
     site: 'honeyd.me',
     mode: 'active',
@@ -26,12 +27,12 @@ async function cfg(env) {
       },
       endpoint: 'https://bedrock-runtime.us-east-1.amazonaws.com/model/claude-sonnet-4-20250514/converse',
       last_seen_use: '2026-11-19T14:02:11Z',
-      token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzaWQiOiIzMDk3YjIiLCJ0aWQiOiIwMDA3LTIwMzEiLCJleHAiOjE3OTQ3ODE4NDd9.b4tH7xQn2pWmF9cLk3sR8vZd5gUe1tYbHnOqSv4',
-      passphrase: '7Qq&vx#2nLm',
+      token: b.sessionJwt,
+      passphrase: b.passphrase,
     },
     internal_api: {
       base_url: 'https://internal-api.honeyd.me/v1',
-      admin_key: 'hd_live_sk_3Rn8Kp2Vx9Lq4Tc7Wb1Yd6Mg0Hj5Sz',
+      admin_key: b.admin,
       scope: 'admin:read admin:write records:export',
       docs: 'https://internal-api.honeyd.me/v1/admin/records',
     },

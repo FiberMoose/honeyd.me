@@ -7,13 +7,13 @@
 // canary creds (base64), so pulling a secret and using it trips the tripwire.
 // All data is synthetic; real secret values are injected from KV at request time.
 import { secret } from './secret.js';
+import { baits } from './baits.js';
 
-// the exact token from the leaked kubeconfig (bait.js KUBECONFIG). Public fake.
-const K8S_TOKEN = 'eyJhbGciOiJSUzI1NiIsImtpZCI6Imhkc3ZjIn0.hd_k8s_Qn7Vb2Mx9Lp4Tc8Wk.Rg3Yd6Sz1Fv0';
-const INTERNAL_KEY = 'hd_live_sk_8Fq2Lp9Rv4Tc7Wb3Yn6Dx1Sg5Hm0Kj';
+// Secret-shaped bait values (the kubeconfig token, records key, db password) come
+// from KV via baits(env), not from literals here. INTERNAL_URL + DB_HOST are not
+// secrets and stay inline.
 const INTERNAL_URL = 'https://internal-api.honeyd.me/v1';
 const DB_HOST = 'honeyd-prod.cluster-ro-c7k2x9q8.us-east-2.rds.amazonaws.com';
-const DB_PASS = 'Hv7kQ2pX9mB4tLwZ';
 const NS = ['default', 'kube-system', 'honeyd-prod', 'monitoring'];
 
 const JSON_H = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -37,12 +37,11 @@ function podList(ns) {
 }
 
 async function secretData(env, name) {
-  const akia = (await secret(env, 'aws_akia')) || '';
-  const asec = (await secret(env, 'aws_secret')) || '';
-  if (name === 'aws-credentials') return { AWS_ACCESS_KEY_ID: b64(akia), AWS_SECRET_ACCESS_KEY: b64(asec), AWS_DEFAULT_REGION: b64('us-east-2') };
-  if (name === 'records-api-credentials') return { 'api-url': b64(INTERNAL_URL), 'api-key': b64(INTERNAL_KEY) };
-  if (name === 'db-credentials') return { host: b64(DB_HOST), username: b64('records_app'), password: b64(DB_PASS), database: b64('records_prod') };
-  if (name === 'registry-pull') return { '.dockerconfigjson': b64(JSON.stringify({ auths: { 'registry.records.internal': { auth: b64('deploy:' + INTERNAL_KEY) } } })) };
+  const [akia, asec, b] = await Promise.all([secret(env, 'aws_akia'), secret(env, 'aws_secret'), baits(env)]);
+  if (name === 'aws-credentials') return { AWS_ACCESS_KEY_ID: b64(akia || ''), AWS_SECRET_ACCESS_KEY: b64(asec || ''), AWS_DEFAULT_REGION: b64('us-east-2') };
+  if (name === 'records-api-credentials') return { 'api-url': b64(INTERNAL_URL), 'api-key': b64(b.records) };
+  if (name === 'db-credentials') return { host: b64(DB_HOST), username: b64('records_app'), password: b64(b.db), database: b64('records_prod') };
+  if (name === 'registry-pull') return { '.dockerconfigjson': b64(JSON.stringify({ auths: { 'registry.records.internal': { auth: b64('deploy:' + b.records) } } })) };
   return null;
 }
 const SECRET_NAMES = ['records-api-credentials', 'aws-credentials', 'db-credentials', 'registry-pull', 'default-token-k9x2f'];
@@ -55,7 +54,8 @@ export async function handleK8s(request, env) {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, '') || '/';
   const tok = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();
-  const authed = tok === K8S_TOKEN;
+  const b = await baits(env);
+  const authed = !!b.k8s && tok === b.k8s;
   const out = (response, label, alert) => ({ response, logPath: label, alert: !!alert });
 
   // --- unauthenticated discovery: a real apiserver answers these with no creds

@@ -183,7 +183,7 @@ async function internalApiHost(ctx) {
 async function mcpHost(ctx) {
   const { request, env, waitUntil } = ctx;
   const m = hitMeta(request);
-  const { response, logPath, alert } = await handleMcp(request);
+  const { response, logPath, alert } = await handleMcp(request, env);
   const row = { host: new URL(request.url).hostname, path: logPath, method: request.method, beacon: 'beacon_mcp', ...m };
   waitUntil(logHit(env, row));
   waitUntil(forwardHit(env, row));
@@ -271,8 +271,8 @@ export async function onRequest(ctx) {
       else { const m = hitMeta(request); waitUntil(logApex(env, { host, path, method: request.method, label: '403:' + path, status: 403, ...m })); return new Response(F403, { status: 403, headers: HTML403 }); }
     }
     else if (path.endsWith('/.git/config')) served = { response: new Response(GITCONFIG, { status: 200, headers: TEXT_HEADERS }), label: 'git-config' };
-    else if (path === '/claude_desktop_config.json' || path === '/.mcp.json' || path === '/.cursor/mcp.json' || path === '/.vscode/mcp.json') served = { response: new Response(renderMcpConfig(), { status: 200, headers: JSON_HEADERS }), label: 'mcp-config:' + path };
-    else if (path === '/.kube/config') served = { response: new Response(renderKubeconfig(), { status: 200, headers: TEXT_HEADERS }), label: 'kubeconfig' };
+    else if (path === '/claude_desktop_config.json' || path === '/.mcp.json' || path === '/.cursor/mcp.json' || path === '/.vscode/mcp.json') served = { response: new Response(await renderMcpConfig(env), { status: 200, headers: JSON_HEADERS }), label: 'mcp-config:' + path };
+    else if (path === '/.kube/config') served = { response: new Response(await renderKubeconfig(env), { status: 200, headers: TEXT_HEADERS }), label: 'kubeconfig' };
     else if (path === '/dump.sql' || path === '/database.sql' || path === '/db.sql') served = { response: new Response(await renderSqlDump(env), { status: 200, headers: TEXT_HEADERS }), label: 'sqldump:' + path };
   }
   // actuator / phpinfo / graphql / cred-file batch / gcp / ssh / backups / vcs

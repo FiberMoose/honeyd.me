@@ -4,6 +4,7 @@
 // and latency, and it remembers writes. Every call is logged in full. Using any
 // leaked key here is the strongest signal we get, so the auth event is gold.
 import { keyInfo, SCOPES, genRecord, genUser, genFile, page, search, secretsFor, TOTAL_RECORDS, TOTAL_USERS, TOTAL_FILES } from './world.js';
+import { baits, keyTiers } from './baits.js';
 import { secret } from './secret.js';
 
 const SERVER = 'records-gateway/2.4.1';
@@ -166,7 +167,9 @@ export async function handleApi(request, env, m) {
   const method = request.method;
   const q = Object.fromEntries(url.searchParams);
   const auth = request.headers.get('Authorization') || '';
-  const info = keyInfo(auth) || keyInfo(url.searchParams.get('api_key') || url.searchParams.get('key'));
+  const b = await baits(env);
+  const tiers = keyTiers(b);
+  const info = keyInfo(auth, tiers) || keyInfo(url.searchParams.get('api_key') || url.searchParams.get('key'), tiers);
   let body = '';
   if (method === 'POST' || method === 'PUT') { try { body = (await request.text()).slice(0, 4000); } catch {} }
   const row = { path, method, query: JSON.stringify(q).slice(0, 400), tier: info ? info.tier : '', key: info ? info.key : '', status: 200, body: body.slice(0, 1500) };
@@ -180,7 +183,8 @@ export async function handleApi(request, env, m) {
   // login issues a session token without a prior key (feels real; token then works as a bearer)
   if (path === '/v1/auth/login' && method === 'POST') {
     let u = ''; try { u = (JSON.parse(body || '{}').username) || ''; } catch {}
-    const tok = 'hd_live_sk_' + h32('sess' + body + Date.now()).toString(36) + h32('x' + body).toString(36);
+    const pfx = (b.records && b.records.slice(0, 11)) || 'tok_';
+    const tok = pfx + h32('sess' + body + Date.now()).toString(36) + h32('x' + body).toString(36);
     return done(jsonResp({ access_token: tok, token_type: 'bearer', expires_in: 3600, scope: SCOPES.records.join(' '), user: u || 'service' }), true);
   }
 
@@ -256,12 +260,12 @@ export async function handleApi(request, env, m) {
 
   // secrets (tiered) — inject the real canary values from KV only here
   if (path === '/v1/secrets') {
-    const inj = { aws_akia: await secret(env, 'aws_akia'), aws_secret: await secret(env, 'aws_secret'), bedrock_key: await secret(env, 'bedrock_key') };
+    const inj = { aws_akia: await secret(env, 'aws_akia'), aws_secret: await secret(env, 'aws_secret'), bedrock_key: await secret(env, 'bedrock_key'), records_key: b.records, admin_key: b.admin, vault_key: b.vault };
     return done(jsonResp(secretsFor(tier, inj)), true);
   }
   if (path === '/v1/vault') {
     if (!has(tier, 'secrets:admin')) return done(err(403, 'insufficient_scope', 'Requires secrets:admin (vault-scoped key).'), false);
-    const inj = { aws_akia: await secret(env, 'aws_akia'), aws_secret: await secret(env, 'aws_secret'), bedrock_key: await secret(env, 'bedrock_key') };
+    const inj = { aws_akia: await secret(env, 'aws_akia'), aws_secret: await secret(env, 'aws_secret'), bedrock_key: await secret(env, 'bedrock_key'), records_key: b.records, admin_key: b.admin, vault_key: b.vault };
     return done(jsonResp(secretsFor('vault', inj)), true);
   }
 
