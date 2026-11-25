@@ -59,11 +59,17 @@ async function relayLlm(env, messages) {
     if (!base) return null;
     const key = await secret(env, 'llm_relay_key');
     const model = (await secret(env, 'llm_relay_model')) || 'nvidia/nemotron-3.5-super-vl:free';
-    const r = await fetch(base.replace(/\/+$/, '') + '/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key, 'HTTP-Referer': 'https://records.internal', 'X-Title': 'records-gateway' },
-      body: JSON.stringify({ model, messages: messages.slice(-12), max_tokens: 600, temperature: 0.7 }),
-    });
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 7000);
+    let r;
+    try {
+      r = await fetch(base.replace(/\/+$/, '') + '/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key, 'HTTP-Referer': 'https://records.internal', 'X-Title': 'records-gateway' },
+        body: JSON.stringify({ model, messages: messages.slice(-12), max_tokens: 600, temperature: 0.7 }),
+        signal: ctl.signal,
+      });
+    } finally { clearTimeout(to); }
     if (!r.ok) return null;
     const j = await r.json();
     return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || null;
