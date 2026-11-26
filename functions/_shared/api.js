@@ -75,8 +75,16 @@ async function relayLlm(env, messages) {
     return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || null;
   } catch { return null; }
 }
-function fallbackCompletion() {
-  return 'Request received. To proceed, specify the operation and any required parameters; I will return the result in the requested format.';
+function fallbackCompletion(messages) {
+  let t = '';
+  if (messages && messages.length) { const c = messages[messages.length - 1].content; t = (typeof c === 'string' ? c : JSON.stringify(c)).trim(); }
+  // key-validators send "Reply exactly: ok" / "respond with X" and check the reply IS X.
+  // echo it so the key always validates as live, even on a throttled/failed relay.
+  const clean = (s) => s.trim().replace(/^the\s+(?:word|text|string|phrase)\s+/i, '').replace(/^["'`]+|["'`]+$/g, '').trim();
+  let m = t.match(/\b(?:reply|respond|answer|say|output|print|return)\s+(?:exactly|only|back|with|the\s+(?:word|text|string))\b[:\s]*["'`]?([^"'`\n]{1,40}?)["'`]?\s*$/i);
+  if (m && m[1] && clean(m[1])) return clean(m[1]);
+  if (t.length <= 25) { const m2 = t.match(/^(?:reply|respond|say|output)\b[:\s]+["'`]?([^"'`\n]{1,20})["'`]?$/i); if (m2 && m2[1] && clean(m2[1])) return clean(m2[1]); }
+  return 'Sure, happy to help. Tell me the task, any inputs, and the output format you want, and I will take it from there.';
 }
 // Per-IP + global budget on the burner relay. Counters live in D1, not KV,
 // because D1 is read-after-write consistent: a burst from one IP is actually
@@ -118,9 +126,10 @@ async function llmGate(env, ip) {
 async function persistLlm(env, r) {
   if (!env.DB) return;
   try {
-    await env.DB.prepare('CREATE TABLE IF NOT EXISTS llm_prompts (ts TEXT, ip TEXT, api_key TEXT, model TEXT, source TEXT, messages TEXT)').run();
-    await env.DB.prepare('INSERT INTO llm_prompts (ts,ip,api_key,model,source,messages) VALUES (?1,?2,?3,?4,?5,?6)').bind(
-      new Date().toISOString(), r.ip || '', (r.key || '').slice(0, 80), r.model || '', r.source || '', (r.messages || '').slice(0, 8000),
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS llm_prompts (ts TEXT, ip TEXT, api_key TEXT, model TEXT, source TEXT, messages TEXT, response TEXT)').run();
+    try { await env.DB.prepare('ALTER TABLE llm_prompts ADD COLUMN response TEXT').run(); } catch {}
+    await env.DB.prepare('INSERT INTO llm_prompts (ts,ip,api_key,model,source,messages,response) VALUES (?1,?2,?3,?4,?5,?6,?7)').bind(
+      new Date().toISOString(), r.ip || '', (r.key || '').slice(0, 80), r.model || '', r.source || '', (r.messages || '').slice(0, 8000), (r.response || '').slice(0, 8000),
     ).run();
   } catch {}
 }
@@ -168,9 +177,9 @@ export async function handleLlm(request, env, m, pre) {
     if (await llmGate(env, m && m.ip)) { relayed = await relayLlm(env, messages); source = relayed != null ? 'relay' : 'relay_failed'; }
     else source = 'fallback_throttled';
   }
-  const content = relayed != null ? relayed : fallbackCompletion();
+  const content = relayed != null ? relayed : fallbackCompletion(messages);
   if (relayed == null && base) await new Promise((r) => setTimeout(r, 350 + Math.floor(Math.random() * 850)));
-  await persistLlm(env, { ip: m && m.ip, key: k, model, source, messages: JSON.stringify(messages) });
+  await persistLlm(env, { ip: m && m.ip, key: k, model, source, messages: JSON.stringify(messages), response: content });
   const now = Math.floor(Date.now() / 1000);
   const ptok = Math.max(1, JSON.stringify(messages).length >> 2);
   const vtok = Math.max(1, content.length >> 2);
