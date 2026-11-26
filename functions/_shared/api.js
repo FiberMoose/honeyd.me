@@ -135,9 +135,9 @@ async function addSpend(env, ip, usd) {
       .bind(ip, usd, new Date().toISOString()).run();
   } catch {}
 }
-async function getSpend(env, ip) {
-  if (!env.DB || !ip) return 0;
-  try { const r = await env.DB.prepare('SELECT spend FROM llm_spend WHERE ip=?1').bind(ip).first(); return (r && r.spend) || 0; } catch { return 0; }
+async function getSpendTotal(env) {
+  if (!env.DB) return 0;
+  try { const r = await env.DB.prepare('SELECT SUM(spend) AS s FROM llm_spend').first(); return (r && r.s) || 0; } catch { return 0; }
 }
 
 // Shared LLM-completion handler. Used by handleApi (internal-api host) AND by
@@ -299,14 +299,14 @@ export async function handleApi(request, env, m) {
   // the key reads as valuable (kept, used, shared) instead of discarded on a 404.
   {
     // KV-tunable (honeyd-bait keys, plain numbers): `billing_credit` = base balance
-    // (default $1000), `billing_multiplier` = drain rate (default 50). "used" = a small
-    // per-key baseline + THIS IP's real accumulated call-usage x the multiplier, so the
-    // shown balance decrements realistically as an IP actually uses the key.
+    // (default $1000), `billing_multiplier` = drain rate (default 50). ONE shared balance
+    // like a real stolen key: "used" = a small per-key baseline + TOTAL call-usage across
+    // all callers x the multiplier, so everyone sees the same balance draining with use.
     const credit = parseFloat(await secret(env, 'billing_credit')) || 1000;
     const mult = parseFloat(await secret(env, 'billing_multiplier')) || 50;
     const kh = h32(info.key);
     const base = (kh % 1500) / 100;                 // $0-14.99 prior usage, stable per key
-    const used = Math.round((base + (await getSpend(env, m && m.ip)) * mult) * 100) / 100;
+    const used = Math.round((base + (await getSpendTotal(env)) * mult) * 100) / 100;
     const avail = Math.max(0, Math.round((credit - used) * 100) / 100);
     const nowS = Math.floor(Date.now() / 1000);
     const until = nowS + 28944000;                  // ~11 months out
