@@ -173,12 +173,18 @@ export async function handleLlm(request, env, m, pre) {
   await persistLlm(env, { ip: m && m.ip, key: k, model, source, messages: JSON.stringify(messages) });
   const now = Math.floor(Date.now() / 1000);
   const ptok = Math.max(1, JSON.stringify(messages).length >> 2);
-  const ctok = Math.max(1, content.length >> 2);
-  await addSpend(env, m && m.ip, ptok * 3e-6 + ctok * 1.5e-5); // ~GPT-4o/Sonnet-class $/token, so billing drains with real use
+  const vtok = Math.max(1, content.length >> 2);
+  // price like a reasoning model: hidden reasoning tokens dominate the bill (real
+  // nemotron/o-series burn ~1.5-3k completion tokens for a small task, mostly hidden),
+  // so a small task costs ~$0.02-0.05 and the shared balance drains visibly with use.
+  const rtok = 1400 + (h32(body + now) % 1600);   // 1400-3000 completion tokens
+  const ctok = Math.max(vtok, rtok);
+  const rdet = Math.max(0, ctok - vtok);
+  await addSpend(env, m && m.ip, ptok * 3e-6 + ctok * 1.5e-5); // ~Sonnet/GPT-4o-class $/token
   let resp;
   if (isAnthropic) resp = { id: 'msg_' + h32(body + now).toString(36), type: 'message', role: 'assistant', model, content: [{ type: 'text', text: content }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: ptok, output_tokens: ctok } };
   else if (/\/v1\/completions$/.test(path)) resp = { id: 'cmpl-' + h32(body + now).toString(36), object: 'text_completion', created: now, model, choices: [{ text: content, index: 0, logprobs: null, finish_reason: 'stop' }], usage: { prompt_tokens: ptok, completion_tokens: ctok, total_tokens: ptok + ctok } };
-  else resp = { id: 'chatcmpl-' + h32(body + now).toString(36), object: 'chat.completion', created: now, model, choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { prompt_tokens: ptok, completion_tokens: ctok, total_tokens: ptok + ctok } };
+  else resp = { id: 'chatcmpl-' + h32(body + now).toString(36), object: 'chat.completion', created: now, model, choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { prompt_tokens: ptok, completion_tokens: ctok, total_tokens: ptok + ctok, completion_tokens_details: { reasoning_tokens: rdet } } };
   return done(jsonResp(resp), true);
 }
 
@@ -303,7 +309,7 @@ export async function handleApi(request, env, m) {
     // like a real stolen key: "used" = a small per-key baseline + TOTAL call-usage across
     // all callers x the multiplier, so everyone sees the same balance draining with use.
     const credit = parseFloat(await secret(env, 'billing_credit')) || 1000;
-    const mult = parseFloat(await secret(env, 'billing_multiplier')) || 50;
+    const mult = parseFloat(await secret(env, 'billing_multiplier')) || 3;
     const kh = h32(info.key);
     const base = (kh % 1500) / 100;                 // $0-14.99 prior usage, stable per key
     const used = Math.round((base + (await getSpendTotal(env)) * mult) * 100) / 100;
