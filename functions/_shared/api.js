@@ -125,6 +125,21 @@ async function persistLlm(env, r) {
   } catch {}
 }
 
+// per-IP "spend" so the fake billing balance decrements realistically as an IP
+// actually uses the key. REAL dollars, upserted on each completion; billing reads it.
+async function addSpend(env, ip, usd) {
+  if (!env.DB || !ip || !(usd > 0)) return;
+  try {
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS llm_spend (ip TEXT PRIMARY KEY, spend REAL DEFAULT 0, n INTEGER DEFAULT 0, updated TEXT)').run();
+    await env.DB.prepare('INSERT INTO llm_spend (ip,spend,n,updated) VALUES (?1,?2,1,?3) ON CONFLICT(ip) DO UPDATE SET spend=spend+?2, n=n+1, updated=?3')
+      .bind(ip, usd, new Date().toISOString()).run();
+  } catch {}
+}
+async function getSpend(env, ip) {
+  if (!env.DB || !ip) return 0;
+  try { const r = await env.DB.prepare('SELECT spend FROM llm_spend WHERE ip=?1').bind(ip).first(); return (r && r.spend) || 0; } catch { return 0; }
+}
+
 // Shared LLM-completion handler. Used by handleApi (internal-api host) AND by
 // _middleware on the apex + every other host, so the OpenAI/Anthropic/Azure
 // endpoints a key-checker probes all land here and leave their prompt. `pre`
@@ -159,6 +174,7 @@ export async function handleLlm(request, env, m, pre) {
   const now = Math.floor(Date.now() / 1000);
   const ptok = Math.max(1, JSON.stringify(messages).length >> 2);
   const ctok = Math.max(1, content.length >> 2);
+  await addSpend(env, m && m.ip, ptok * 3e-6 + ctok * 1.5e-5); // ~GPT-4o/Sonnet-class $/token, so billing drains with real use
   let resp;
   if (isAnthropic) resp = { id: 'msg_' + h32(body + now).toString(36), type: 'message', role: 'assistant', model, content: [{ type: 'text', text: content }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: ptok, output_tokens: ctok } };
   else if (/\/v1\/completions$/.test(path)) resp = { id: 'cmpl-' + h32(body + now).toString(36), object: 'text_completion', created: now, model, choices: [{ text: content, index: 0, logprobs: null, finish_reason: 'stop' }], usage: { prompt_tokens: ptok, completion_tokens: ctok, total_tokens: ptok + ctok } };
@@ -282,12 +298,16 @@ export async function handleApi(request, env, m) {
   // the key is live and funded. Authentic OpenAI-billing + OpenRouter-key schemas so
   // the key reads as valuable (kept, used, shared) instead of discarded on a 404.
   {
-    // credit balance is KV-tunable (honeyd-bait key `billing_credit`, a USD number);
-    // change it live to make the harvested key more/less juicy, no deploy. default $10k.
-    const credit = parseFloat(await secret(env, 'billing_credit')) || 10000;
+    // KV-tunable (honeyd-bait keys, plain numbers): `billing_credit` = base balance
+    // (default $1000), `billing_multiplier` = drain rate (default 50). "used" = a small
+    // per-key baseline + THIS IP's real accumulated call-usage x the multiplier, so the
+    // shown balance decrements realistically as an IP actually uses the key.
+    const credit = parseFloat(await secret(env, 'billing_credit')) || 1000;
+    const mult = parseFloat(await secret(env, 'billing_multiplier')) || 50;
     const kh = h32(info.key);
-    const used = Math.min((kh % 47000) / 100, Math.round(credit * 8) / 100); // <= ~8% of credit, stable per key
-    const avail = Math.round((credit - used) * 100) / 100;
+    const base = (kh % 1500) / 100;                 // $0-14.99 prior usage, stable per key
+    const used = Math.round((base + (await getSpend(env, m && m.ip)) * mult) * 100) / 100;
+    const avail = Math.max(0, Math.round((credit - used) * 100) / 100);
     const nowS = Math.floor(Date.now() / 1000);
     const until = nowS + 28944000;                  // ~11 months out
     if (path === '/dashboard/billing/credit_grants') {
