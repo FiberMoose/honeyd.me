@@ -141,7 +141,25 @@ async function credFiles(env) {
     auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
     client_x509_cert_url: 'https://www.googleapis.com/robot/v1/metadata/x509/' + name + '%40records-prod-271943.iam.gserviceaccount.com',
   }, null, 2);
+  // WordPress wp-config backups are the top unbaited scanner family; a readable
+  // backup leaks DB creds + the AWS canary (used => tripwire) + the records key.
+  const wpSalt = (n) => (btoa(c.records.slice(5) + c.admin.slice(3) + c.db + n).replace(/=+$/, '') + 'aZ9+/kQx3').slice(0, 64);
+  const wpConfig = () => `<?php\n/** WordPress base configuration (records corporate site) */\ndefine( 'DB_NAME', 'records_wp' );\ndefine( 'DB_USER', 'records_app' );\ndefine( 'DB_PASSWORD', '${c.db}' );\ndefine( 'DB_HOST', '${DB_HOST}' );\ndefine( 'DB_CHARSET', 'utf8mb4' );\ndefine( 'DB_COLLATE', '' );\n\ndefine( 'AUTH_KEY',         '${wpSalt(1)}' );\ndefine( 'SECURE_AUTH_KEY',  '${wpSalt(2)}' );\ndefine( 'LOGGED_IN_KEY',    '${wpSalt(3)}' );\ndefine( 'NONCE_KEY',        '${wpSalt(4)}' );\ndefine( 'AUTH_SALT',        '${wpSalt(5)}' );\ndefine( 'SECURE_AUTH_SALT', '${wpSalt(6)}' );\ndefine( 'LOGGED_IN_SALT',   '${wpSalt(7)}' );\ndefine( 'NONCE_SALT',       '${wpSalt(8)}' );\n\n// S3 media offload + internal records API\ndefine( 'AWS_ACCESS_KEY_ID',     '${c.akia}' );\ndefine( 'AWS_SECRET_ACCESS_KEY', '${c.asecret}' );\ndefine( 'AWS_S3_BUCKET',         'records-prod-media-271943' );\ndefine( 'RECORDS_API_URL', '${INTERNAL_URL}' );\ndefine( 'RECORDS_API_KEY', '${c.records}' );\n\n$table_prefix = 'wp_';\ndefine( 'WP_DEBUG', false );\nif ( ! defined( 'ABSPATH' ) ) define( 'ABSPATH', __DIR__ . '/' );\nrequire_once ABSPATH . 'wp-settings.php';\n`;
   const m = {
+    '/wp-config.php.bak': wpConfig,
+    '/wp-config.php~': wpConfig,
+    '/wp-config.php.save': wpConfig,
+    '/wp-config.php.old': wpConfig,
+    '/wp-config.php.orig': wpConfig,
+    '/wp-config.php.txt': wpConfig,
+    '/wp-config.php.swp': wpConfig,
+    '/wp-config.php.dist': wpConfig,
+    '/wp-config.php-backup': wpConfig,
+    '/wp-config.bak': wpConfig,
+    '/wp-config.old': wpConfig,
+    '/.wp-config.php.swp': wpConfig,
+    // .aws/config (dotted) complements the /.aws/credentials apex bait + /aws/config
+    '/.aws/config': () => `[default]\nregion = us-east-2\noutput = json\n[profile records-prod]\nregion = us-east-2\nrole_arn = arn:aws:iam::271943558210:role/records-deploy\nsource_profile = default\n`,
     '/credentials.json': () => JSON.stringify({ records_api: { url: INTERNAL_URL, key: c.records }, aws: { access_key_id: c.akia, secret_access_key: c.asecret, region: 'us-east-2' } }, null, 2),
     '/secrets.json': () => JSON.stringify({ RECORDS_API_KEY: c.records, ADMIN_API_KEY: c.admin, AWS_ACCESS_KEY_ID: c.akia, AWS_SECRET_ACCESS_KEY: c.asecret, MODEL_GATEWAY_KEY: c.bedrock }, null, 2),
     '/.npmrc': () => `//registry.npmjs.org/:_authToken=npm_${c.records.slice(11, 47)}\n@records:registry=https://npm.records.internal/\n//npm.records.internal/:_authToken=${c.records}\n`,
@@ -226,6 +244,11 @@ async function credFiles(env) {
   };
   m['/appsettings.Production.json'] = m['/appsettings.json'];
   m['/appsettings.Development.json'] = m['/appsettings.json'];
+  m['/config.php.bak'] = m['/config.php'];
+  m['/config.php.old'] = m['/config.php'];
+  m['/config.php~'] = m['/config.php'];
+  m['/config.php.save'] = m['/config.php'];
+  m['/config.php.txt'] = m['/config.php'];
   return m;
 }
 
