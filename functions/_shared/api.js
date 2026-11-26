@@ -282,28 +282,32 @@ export async function handleApi(request, env, m) {
   // the key is live and funded. Authentic OpenAI-billing + OpenRouter-key schemas so
   // the key reads as valuable (kept, used, shared) instead of discarded on a 404.
   {
+    // credit balance is KV-tunable (honeyd-bait key `billing_credit`, a USD number);
+    // change it live to make the harvested key more/less juicy, no deploy. default $10k.
+    const credit = parseFloat(await secret(env, 'billing_credit')) || 10000;
     const kh = h32(info.key);
-    const used = (kh % 8000) / 100;                 // 0.00 .. 79.99, stable per key
+    const used = Math.min((kh % 47000) / 100, Math.round(credit * 8) / 100); // <= ~8% of credit, stable per key
+    const avail = Math.round((credit - used) * 100) / 100;
     const nowS = Math.floor(Date.now() / 1000);
     const until = nowS + 28944000;                  // ~11 months out
     if (path === '/dashboard/billing/credit_grants') {
-      const granted = 120.0; const avail = Math.round((granted - used) * 100) / 100;
-      return done(jsonResp({ object: 'credit_summary', total_granted: granted, total_used: used, total_available: avail, total_paid_available: avail,
-        grants: { object: 'list', data: [{ object: 'credit_grant', id: 'cg-' + kh.toString(36), grant_amount: granted, used_amount: used, effective_at: nowS - 2592000, expires_at: until }] } }), false);
+      return done(jsonResp({ object: 'credit_summary', total_granted: credit, total_used: used, total_available: avail, total_paid_available: avail,
+        grants: { object: 'list', data: [{ object: 'credit_grant', id: 'cg-' + kh.toString(36), grant_amount: credit, used_amount: used, effective_at: nowS - 2592000, expires_at: until }] } }), false);
     }
     if (path === '/dashboard/billing/subscription' || path === '/v1/dashboard/billing/subscription') {
+      const hard = Math.round(credit * 1.5); const soft = Math.round(credit * 1.2); const sys = credit * 3;
       return done(jsonResp({ object: 'billing_subscription', has_payment_method: true, canceled: false, canceled_at: null, delinquent: null, access_until: until,
-        soft_limit: 40000000, hard_limit: 50000000, system_hard_limit: 100000000, soft_limit_usd: 400.0, hard_limit_usd: 500.0, system_hard_limit_usd: 1000.0,
+        soft_limit: soft * 100000, hard_limit: hard * 100000, system_hard_limit: sys * 100000, soft_limit_usd: soft, hard_limit_usd: hard, system_hard_limit_usd: sys,
         plan: { title: 'Pay-as-you-go', id: 'payg' }, account_name: 'records-gateway', po_number: null, billing_email: null, tax_ids: null, billing_address: null, business_address: null }), false);
     }
     if (path === '/api/usage/token' || path === '/dashboard/billing/usage' || path === '/v1/usage') {
       return done(jsonResp({ object: 'list', total_usage: Math.round(used * 100), daily_costs: [] }), false);
     }
     if (path === '/api/v1/auth/key' || path === '/api/v1/key') {
-      return done(jsonResp({ data: { label: 'records-gateway', usage: used, limit: 100, is_free_tier: false, is_provisioning_key: false, limit_remaining: Math.round((100 - used) * 10000) / 10000, rate_limit: { requests: 200, interval: '10s' } } }), false);
+      return done(jsonResp({ data: { label: 'records-gateway', usage: used, limit: credit, is_free_tier: false, is_provisioning_key: false, limit_remaining: avail, rate_limit: { requests: 2000, interval: '10s' } } }), false);
     }
     if (path === '/api/v1/credits') {
-      return done(jsonResp({ data: { total_credits: 100.0, total_usage: used } }), false);
+      return done(jsonResp({ data: { total_credits: credit, total_usage: used } }), false);
     }
   }
 
