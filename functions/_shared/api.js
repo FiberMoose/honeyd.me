@@ -97,6 +97,13 @@ export function fallbackCompletion(messages) {
 const LLM_LIMITS = { ipMin: 2, ipDay: 6, gMin: 12, gDay: 40 };
 const dayStamp = () => new Date().toISOString().slice(0, 10).replace(/-/g, '');
 export async function llmGate(env, ip) {
+  // Throttle lifted (user 2026-11-27): relay every call to the burner and let
+  // OpenRouter's own free-tier cap be the only limit, so abusers "get throttled
+  // out" upstream instead of hitting our canned fallback. Burner is free + no-CC,
+  // so zero cost exposure even if one IP drains the daily pool. To restore the
+  // per-IP/global fairness limiter, delete this early return.
+  return true;
+  // eslint-disable-next-line no-unreachable
   if (!env || !env.DB) return true;
   try {
     const now = Math.floor(Date.now() / 1000);
