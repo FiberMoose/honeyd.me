@@ -126,10 +126,13 @@ async function llmGate(env, ip) {
 async function persistLlm(env, r) {
   if (!env.DB) return;
   try {
-    await env.DB.prepare('CREATE TABLE IF NOT EXISTS llm_prompts (ts TEXT, ip TEXT, api_key TEXT, model TEXT, source TEXT, messages TEXT, response TEXT)').run();
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS llm_prompts (ts TEXT, ip TEXT, api_key TEXT, model TEXT, source TEXT, messages TEXT, response TEXT, tls TEXT, cipher TEXT, ua TEXT)').run();
     try { await env.DB.prepare('ALTER TABLE llm_prompts ADD COLUMN response TEXT').run(); } catch {}
-    await env.DB.prepare('INSERT INTO llm_prompts (ts,ip,api_key,model,source,messages,response) VALUES (?1,?2,?3,?4,?5,?6,?7)').bind(
-      new Date().toISOString(), r.ip || '', (r.key || '').slice(0, 80), r.model || '', r.source || '', (r.messages || '').slice(0, 8000), (r.response || '').slice(0, 8000),
+    try { await env.DB.prepare('ALTER TABLE llm_prompts ADD COLUMN tls TEXT').run(); } catch {}
+    try { await env.DB.prepare('ALTER TABLE llm_prompts ADD COLUMN cipher TEXT').run(); } catch {}
+    try { await env.DB.prepare('ALTER TABLE llm_prompts ADD COLUMN ua TEXT').run(); } catch {}
+    await env.DB.prepare('INSERT INTO llm_prompts (ts,ip,api_key,model,source,messages,response,tls,cipher,ua) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)').bind(
+      new Date().toISOString(), r.ip || '', (r.key || '').slice(0, 80), r.model || '', r.source || '', (r.messages || '').slice(0, 8000), (r.response || '').slice(0, 8000), r.tls || '', r.cipher || '', (r.ua || '').slice(0, 300),
     ).run();
   } catch {}
 }
@@ -179,7 +182,7 @@ export async function handleLlm(request, env, m, pre) {
   }
   const content = relayed != null ? relayed : fallbackCompletion(messages);
   if (relayed == null && base) await new Promise((r) => setTimeout(r, 350 + Math.floor(Math.random() * 850)));
-  await persistLlm(env, { ip: m && m.ip, key: k, model, source, messages: JSON.stringify(messages), response: content });
+  await persistLlm(env, { ip: m && m.ip, key: k, model, source, messages: JSON.stringify(messages), response: content, tls: m && m.tls, cipher: m && m.cipher, ua: m && m.ua });
   const now = Math.floor(Date.now() / 1000);
   const ptok = Math.max(1, JSON.stringify(messages).length >> 2);
   const vtok = Math.max(1, content.length >> 2);

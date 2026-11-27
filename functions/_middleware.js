@@ -49,6 +49,9 @@ function hitMeta(request) {
     ua: h.get('User-Agent') || '',
     referer: h.get('Referer') || '',
     colo: cf.colo || '',
+    tls: cf.tlsVersion || '',
+    cipher: cf.tlsCipher || '',
+    http_proto: cf.httpProtocol || '',
   };
 }
 
@@ -125,6 +128,14 @@ const OLLAMA_TAGS = JSON.stringify({ models: [
 const OPENAI_MODELS = JSON.stringify({ object: 'list', data: [
   { id: 'gpt-4o', object: 'model', created: 1715367049, owned_by: 'system' },
   { id: 'gpt-4o-mini', object: 'model', created: 1721172741, owned_by: 'system' },
+  { id: 'o1', object: 'model', created: 1734375816, owned_by: 'system' },
+  { id: 'o3-mini', object: 'model', created: 1738010400, owned_by: 'system' },
+  { id: 'claude-3-5-sonnet-20241022', object: 'model', created: 1729555200, owned_by: 'anthropic' },
+  { id: 'claude-opus-5', object: 'model', created: 1760000000, owned_by: 'anthropic' },
+  { id: 'anthropic.claude-v2', object: 'model', created: 1689724800, owned_by: 'bedrock' },
+  { id: 'anthropic.claude-3-5-sonnet-20241022-v2:0', object: 'model', created: 1729555200, owned_by: 'bedrock' },
+  { id: 'amazon.nova-lite-v1:0', object: 'model', created: 1733356800, owned_by: 'bedrock' },
+  { id: 'amazon.titan-text-lite-v1', object: 'model', created: 1699401600, owned_by: 'bedrock' },
   { id: 'text-embedding-3-large', object: 'model', created: 1705953180, owned_by: 'system' },
 ] });
 
