@@ -197,7 +197,13 @@ export async function handleLlm(request, env, m, pre) {
   if (isAnthropic) resp = { id: 'msg_' + h32(body + now).toString(36), type: 'message', role: 'assistant', model, content: [{ type: 'text', text: content }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: ptok, output_tokens: ctok } };
   else if (/\/v1\/completions$/.test(path)) resp = { id: 'cmpl-' + h32(body + now).toString(36), object: 'text_completion', created: now, model, choices: [{ text: content, index: 0, logprobs: null, finish_reason: 'stop' }], usage: { prompt_tokens: ptok, completion_tokens: ctok, total_tokens: ptok + ctok } };
   else resp = { id: 'chatcmpl-' + h32(body + now).toString(36), object: 'chat.completion', created: now, model, choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { prompt_tokens: ptok, completion_tokens: ctok, total_tokens: ptok + ctok, completion_tokens_details: { reasoning_tokens: rdet } } };
-  return done(jsonResp(resp), true);
+  // provider-authentic response headers (real OpenAI / Anthropic set these; a
+  // validator that inspects headers sees a genuine-looking gateway).
+  const rid = h32(body + now).toString(16) + Math.random().toString(16).slice(2, 10);
+  const phdr = isAnthropic
+    ? { 'request-id': 'req_' + rid, 'anthropic-ratelimit-requests-limit': '4000', 'anthropic-ratelimit-requests-remaining': '3999', 'anthropic-ratelimit-tokens-limit': '400000', 'anthropic-ratelimit-tokens-remaining': String(Math.max(0, 400000 - ctok)), 'anthropic-ratelimit-tokens-reset': new Date(now * 1000 + 60000).toISOString() }
+    : { 'openai-version': '2020-10-01', 'openai-organization': 'org-' + rid.slice(0, 16), 'openai-processing-ms': String(200 + (ctok % 1800)), 'x-request-id': 'req_' + rid, 'x-ratelimit-limit-requests': '10000', 'x-ratelimit-remaining-requests': '9999', 'x-ratelimit-limit-tokens': '30000000', 'x-ratelimit-remaining-tokens': String(Math.max(0, 30000000 - ctok)), 'x-ratelimit-reset-requests': '6ms', 'x-ratelimit-reset-tokens': '0s' };
+  return done(jsonResp(resp, 200, phdr), true);
 }
 
 // returns { response, row, alert }
