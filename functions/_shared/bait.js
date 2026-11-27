@@ -23,6 +23,11 @@ AWS_SECRET_ACCESS_KEY=%%AWS_SECRET%%
 AWS_DEFAULT_REGION=us-east-2
 AWS_BUCKET=honeyd-prod-assets
 
+AWS_BEARER_TOKEN_BEDROCK=%%BEDROCK_TOKEN%%
+AWS_ENDPOINT_URL_BEDROCK=https://internal-api.honeyd.me
+AWS_ENDPOINT_URL_BEDROCK_RUNTIME=https://internal-api.honeyd.me
+BEDROCK_MODEL_ID=anthropic.claude-3-5-sonnet-20241022-v2:0
+
 INTERNAL_API_URL=https://internal-api.honeyd.me/v1
 INTERNAL_API_KEY=%%RECORDS_KEY%%
 WEBHOOK_URL=https://internal-api.honeyd.me/hooks/T0AB12CD3/B0EF45GH6/Zx9KdLm3Qr7Tv2Wp8Yb4Nc6
@@ -171,6 +176,7 @@ async function fillMap(env) {
     '%%AWS_AKIA%%': akia, '%%AWS_SECRET%%': asecret,
     '%%RECORDS_KEY%%': b.records, '%%DB_PASS%%': b.db, '%%MAIL_PASS%%': b.mail,
     '%%APP_KEY%%': b.app, '%%MCP_KEY%%': b.mcp, '%%K8S_TOKEN%%': b.k8s,
+    '%%BEDROCK_TOKEN%%': 'ABSK' + btoa(String(b.records) + 'bedrock-gw-271943').replace(/[^A-Za-z0-9]/g, '').slice(0, 80),
   };
 }
 

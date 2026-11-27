@@ -18,6 +18,7 @@ import {
 import { handleMcp } from './_shared/mcp.js';
 import { handleK8s } from './_shared/k8s.js';
 import { handleApi, handleLlm } from './_shared/api.js';
+import { handleBedrock } from './_shared/bedrock.js';
 import { handleDecoy } from './_shared/decoys.js';
 
 const PASS = new Set([
@@ -244,6 +245,21 @@ export async function onRequest(ctx) {
     waitUntil(forwardHit(env, row));
     if (decoy.alert && beaconKey !== 'apex') waitUntil(pingBeacon(env, beaconKey, m));
     return decoy.response;
+  }
+
+  // Fake Bedrock surface on ANY host (control-plane GETs + runtime POSTs), lured
+  // via a planted AWS_BEARER_TOKEN_BEDROCK + AWS_ENDPOINT_URL_BEDROCK in .env.
+  // Returns null without reading the body for non-Bedrock requests.
+  {
+    const m = hitMeta(request);
+    const br = await handleBedrock(request, env, m);
+    if (br) {
+      const full = { host, client: m.ua, ...m, ...br.row };
+      waitUntil(logApiHit(env, full));
+      waitUntil(forwardHit(env, { host, beacon: beaconKey, path: br.row.path + ' [bedrock]', method: request.method, status: br.row.status, ip: m.ip, country: m.country, asn: m.asn, as_org: m.as_org, ua: m.ua }));
+      if (br.alert && beaconKey !== 'apex') waitUntil(pingBeacon(env, beaconKey, m));
+      return br.response;
+    }
   }
 
   // LLM completion endpoints on ANY host (apex included): a key-checker that
