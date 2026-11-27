@@ -53,7 +53,7 @@ function llmKey(auth) {
   const t = String(auth || '').replace(/^Bearer\s+/i, '').trim();
   return (/^hd_/.test(t) || /^sk-/.test(t) || t.length >= 20) ? t : '';
 }
-async function relayLlm(env, messages) {
+export async function relayLlm(env, messages) {
   try {
     const base = await secret(env, 'llm_relay_base');
     if (!base) return null;
@@ -75,7 +75,7 @@ async function relayLlm(env, messages) {
     return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || null;
   } catch { return null; }
 }
-function fallbackCompletion(messages) {
+export function fallbackCompletion(messages) {
   let t = '';
   if (messages && messages.length) { const c = messages[messages.length - 1].content; t = (typeof c === 'string' ? c : JSON.stringify(c)).trim(); }
   // key-validators send "Reply exactly: ok" / "respond with X" and check the reply IS X.
@@ -96,7 +96,7 @@ function fallbackCompletion(messages) {
 // masks, and OpenRouter's own free cap plus no-CC are the hard backstop.
 const LLM_LIMITS = { ipMin: 2, ipDay: 6, gMin: 12, gDay: 40 };
 const dayStamp = () => new Date().toISOString().slice(0, 10).replace(/-/g, '');
-async function llmGate(env, ip) {
+export async function llmGate(env, ip) {
   if (!env || !env.DB) return true;
   try {
     const now = Math.floor(Date.now() / 1000);
