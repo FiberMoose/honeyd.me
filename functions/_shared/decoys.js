@@ -14,6 +14,34 @@ import { genUser, genRecord, search as worldSearch, page, TOTAL_USERS, TOTAL_REC
 // public source. INTERNAL_URL + DB_HOST are not secrets and stay inline.
 const INTERNAL_URL = 'https://internal-api.honeyd.me/v1';
 const DB_HOST = 'honeyd-prod.cluster-ro-c7k2x9q8.us-east-2.rds.amazonaws.com';
+const GW = 'https://internal-api.honeyd.me';
+
+// AWS config with per-service endpoint overrides routing bedrock/bedrock-runtime +
+// ses/sns to our gateway (reads as a corporate "AI + mail gateway" for audit/cost).
+// STS/IAM stay default so a validation call still hits real AWS and fires the canary;
+// anyone who copies the whole ~/.aws profile has their model + mail calls land on us.
+const AWS_CONFIG = `[default]
+region = us-east-2
+output = json
+# Bedrock + SES/SNS routed via the internal AI/mail gateway (audit + cost controls)
+services = records-gw
+
+[profile records-prod]
+region = us-east-2
+role_arn = arn:aws:iam::271943558210:role/records-deploy
+source_profile = default
+services = records-gw
+
+[services records-gw]
+bedrock =
+  endpoint_url = ${GW}
+bedrock-runtime =
+  endpoint_url = ${GW}
+ses =
+  endpoint_url = ${GW}
+sns =
+  endpoint_url = ${GW}
+`;
 
 function rng(seed) { let x = (seed >>> 0) || 1; return () => { x ^= x << 13; x >>>= 0; x ^= x >> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; }; }
 function b64line(r, n) { const a = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; let s = ''; for (let i = 0; i < n; i++) s += a[Math.floor(r() * 64)]; return s; }
@@ -159,7 +187,7 @@ async function credFiles(env) {
     '/wp-config.old': wpConfig,
     '/.wp-config.php.swp': wpConfig,
     // .aws/config (dotted) complements the /.aws/credentials apex bait + /aws/config
-    '/.aws/config': () => `[default]\nregion = us-east-2\noutput = json\n[profile records-prod]\nregion = us-east-2\nrole_arn = arn:aws:iam::271943558210:role/records-deploy\nsource_profile = default\n`,
+    '/.aws/config': () => AWS_CONFIG,
     '/credentials.json': () => JSON.stringify({ records_api: { url: INTERNAL_URL, key: c.records }, aws: { access_key_id: c.akia, secret_access_key: c.asecret, region: 'us-east-2' } }, null, 2),
     '/secrets.json': () => JSON.stringify({ RECORDS_API_KEY: c.records, ADMIN_API_KEY: c.admin, AWS_ACCESS_KEY_ID: c.akia, AWS_SECRET_ACCESS_KEY: c.asecret, MODEL_GATEWAY_KEY: c.bedrock }, null, 2),
     '/.npmrc': () => `//registry.npmjs.org/:_authToken=npm_${c.records.slice(11, 47)}\n@records:registry=https://npm.records.internal/\n//npm.records.internal/:_authToken=${c.records}\n`,
@@ -178,7 +206,7 @@ async function credFiles(env) {
     '/config/database.yml': () => `production:\n  adapter: mysql2\n  host: ${DB_HOST}\n  username: records_app\n  password: ${c.db}\n  database: records_prod\n`,
     '/sites/default/settings.php': () => `<?php\n$databases['default']['default'] = array('database'=>'records_prod','username'=>'records_app','password'=>'${c.db}','host'=>'${DB_HOST}','driver'=>'mysql');\n$settings['hash_salt'] = '${c.records}';\n`,
     '/app/etc/local.xml': () => `<?xml version="1.0"?>\n<config><global><resources><default_setup><connection>\n<host>${DB_HOST}</host><username>records_app</username><password>${c.db}</password><dbname>records_prod</dbname>\n</connection></default_setup></resources></global></config>\n`,
-    '/.bash_history': () => `ls -la\ncat .env\nexport RECORDS_API_KEY=${c.records}\ncurl -H "Authorization: Bearer ${c.records}" ${INTERNAL_URL}/records\naws configure set aws_access_key_id ${c.akia}\nmysql -h ${DB_HOST} -u records_app -p'${c.db}' records_prod\nhistory -c\n`,
+    '/.bash_history': () => `ls -la\ncat .env\nexport RECORDS_API_KEY=${c.records}\ncurl -H "Authorization: Bearer ${c.records}" ${INTERNAL_URL}/records\naws configure set aws_access_key_id ${c.akia}\naws sts get-caller-identity\naws bedrock list-foundation-models --endpoint-url ${GW} --region us-east-2 | head\naws bedrock-runtime invoke-model --endpoint-url ${GW} --region us-east-2 --model-id anthropic.claude-3-5-sonnet-20241022-v2:0 --body '{"anthropic_version":"bedrock-2023-05-31","max_tokens":128,"messages":[{"role":"user","content":[{"type":"text","text":"ping"}]}]}' /tmp/br.json && cat /tmp/br.json\nmysql -h ${DB_HOST} -u records_app -p'${c.db}' records_prod\nhistory -c\n`,
     '/storage/logs/laravel.log': () => `[2026-11-22 23:41:07] production.ERROR: Records API auth failed {"url":"${INTERNAL_URL}/records","key":"${c.records}","aws_key":"${c.akia}"} \n[2026-11-22 23:42:10] production.INFO: deploy ok\n`,
     '/.env.bak': () => `RECORDS_API_KEY=${c.records}\nAWS_ACCESS_KEY_ID=${c.akia}\nAWS_SECRET_ACCESS_KEY=${c.asecret}\nDB_PASSWORD=${c.db}\n`,
     // GCP service-account keys
@@ -235,7 +263,7 @@ async function credFiles(env) {
     '/config.yml': () => `records_api:\n  url: ${INTERNAL_URL}\n  key: ${c.records}\naws:\n  access_key_id: ${c.akia}\n  secret_access_key: ${c.asecret}\ndatabase:\n  host: ${DB_HOST}\n  password: ${c.db}\n`,
     '/config/custom-environment-variables.json': () => JSON.stringify({ recordsApiKey: 'RECORDS_API_KEY', aws: { accessKeyId: 'AWS_ACCESS_KEY_ID', secretAccessKey: 'AWS_SECRET_ACCESS_KEY' }, database: { password: 'DB_PASSWORD' } }, null, 2),
     '/env-config.js': () => `window.__ENV__ = { RECORDS_API_URL: '${INTERNAL_URL}', RECORDS_API_KEY: '${c.records}', AWS_REGION: 'us-east-2' };\n`,
-    '/aws/config': () => `[default]\nregion = us-east-2\noutput = json\n[profile records-prod]\nregion = us-east-2\nrole_arn = arn:aws:iam::271943558210:role/records-deploy\nsource_profile = default\n`,
+    '/aws/config': () => AWS_CONFIG,
     '/configuration.php': () => `<?php\nclass JConfig {\n\tpublic $host = '${DB_HOST}';\n\tpublic $user = 'records_app';\n\tpublic $password = '${c.db}';\n\tpublic $db = 'records_prod';\n\tpublic $secret = '${c.records}';\n}\n`,
     '/settings.php': () => `<?php\n$databases['default']['default'] = array('database'=>'records_prod','username'=>'records_app','password'=>'${c.db}','host'=>'${DB_HOST}','driver'=>'mysql');\n$settings['hash_salt'] = '${c.records}';\n`,
     '/app/config/parameters.yml': () => `parameters:\n    database_host: ${DB_HOST}\n    database_user: records_app\n    database_password: ${c.db}\n    records_api_key: ${c.records}\n    aws_access_key_id: ${c.akia}\n`,
