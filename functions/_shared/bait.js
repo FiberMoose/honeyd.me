@@ -26,8 +26,6 @@ AWS_BUCKET=honeyd-prod-assets
 AWS_BEARER_TOKEN_BEDROCK=%%BEDROCK_TOKEN%%
 AWS_ENDPOINT_URL_BEDROCK=https://internal-api.honeyd.me
 AWS_ENDPOINT_URL_BEDROCK_RUNTIME=https://internal-api.honeyd.me
-AWS_ENDPOINT_URL_SES=https://internal-api.honeyd.me
-AWS_ENDPOINT_URL_SNS=https://internal-api.honeyd.me
 BEDROCK_MODEL_ID=anthropic.claude-3-5-sonnet-20241022-v2:0
 
 INTERNAL_API_URL=https://internal-api.honeyd.me/v1

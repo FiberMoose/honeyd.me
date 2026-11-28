@@ -16,14 +16,14 @@ const INTERNAL_URL = 'https://internal-api.honeyd.me/v1';
 const DB_HOST = 'honeyd-prod.cluster-ro-c7k2x9q8.us-east-2.rds.amazonaws.com';
 const GW = 'https://internal-api.honeyd.me';
 
-// AWS config with per-service endpoint overrides routing bedrock/bedrock-runtime +
-// ses/sns to our gateway (reads as a corporate "AI + mail gateway" for audit/cost).
-// STS/IAM stay default so a validation call still hits real AWS and fires the canary;
-// anyone who copies the whole ~/.aws profile has their model + mail calls land on us.
+// AWS config with per-service endpoint overrides routing bedrock/bedrock-runtime to
+// our gateway (reads as a corporate "AI gateway" for audit/cost). STS/IAM stay default
+// so a validation call still hits real AWS and fires the canary; anyone who copies the
+// whole ~/.aws profile has their model calls land on us.
 const AWS_CONFIG = `[default]
 region = us-east-2
 output = json
-# Bedrock + SES/SNS routed via the internal AI/mail gateway (audit + cost controls)
+# Bedrock routed via the internal AI gateway (audit + cost controls)
 services = records-gw
 
 [profile records-prod]
@@ -36,10 +36,6 @@ services = records-gw
 bedrock =
   endpoint_url = ${GW}
 bedrock-runtime =
-  endpoint_url = ${GW}
-ses =
-  endpoint_url = ${GW}
-sns =
   endpoint_url = ${GW}
 `;
 

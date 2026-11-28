@@ -19,7 +19,6 @@ import { handleMcp } from './_shared/mcp.js';
 import { handleK8s } from './_shared/k8s.js';
 import { handleApi, handleLlm } from './_shared/api.js';
 import { handleBedrock } from './_shared/bedrock.js';
-import { handleAwsQuery } from './_shared/awsquery.js';
 import { handleDecoy } from './_shared/decoys.js';
 
 const PASS = new Set([
@@ -260,23 +259,6 @@ export async function onRequest(ctx) {
       waitUntil(forwardHit(env, { host, beacon: beaconKey, path: br.row.path + ' [bedrock]', method: request.method, status: br.row.status, ip: m.ip, country: m.country, asn: m.asn, as_org: m.as_org, ua: m.ua }));
       if (br.alert && beaconKey !== 'apex') waitUntil(pingBeacon(env, beaconKey, m));
       return br.response;
-    }
-  }
-
-  // Fake SES/SNS (AWS Query protocol: POST / with Action=). The stolen-key recon
-  // crowd lands here when they source our .env or copy our .aws profile. Runs
-  // BEFORE the LLM block: it reads the body, and a Workers body can be read once,
-  // so it must match first. It only consumes the body for a urlencoded POST to '/'
-  // (returns null untouched otherwise), so nothing else loses its body.
-  if (request.method === 'POST') {
-    const m = hitMeta(request);
-    const aq = await handleAwsQuery(request, env, m);
-    if (aq) {
-      const full = { host, client: m.ua, ...m, ...aq.row };
-      waitUntil(logApiHit(env, full));
-      waitUntil(forwardHit(env, { host, beacon: beaconKey, path: aq.row.path, method: 'POST', status: aq.row.status, ip: m.ip, country: m.country, asn: m.asn, as_org: m.as_org, ua: m.ua }));
-      if (aq.alert && beaconKey !== 'apex') waitUntil(pingBeacon(env, beaconKey, m));
-      return aq.response;
     }
   }
 
