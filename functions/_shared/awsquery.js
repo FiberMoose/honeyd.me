@@ -6,8 +6,10 @@
 // instead of only seeing the canary fire. SES/SNS Query calls are POST / with a
 // urlencoded Action=; responses are the AWS XML Query shape. All synthetic.
 
+// reqId() uses crypto; call it only inside the handler (per-request), never at
+// module/global scope — Workers disallow random generation in global scope.
 const reqId = () => (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(16) + Math.random().toString(16).slice(2, 10)));
-const XML_H = { 'Content-Type': 'text/xml', 'x-amzn-RequestId': reqId(), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
+const XML_H = { 'Content-Type': 'text/xml', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
 const SES_NS = 'http://ses.amazonaws.com/doc/2010-12-01/';
 const SNS_NS = 'http://sns.amazonaws.com/doc/2010-03-31/';
 
