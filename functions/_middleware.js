@@ -263,6 +263,23 @@ export async function onRequest(ctx) {
     }
   }
 
+  // Fake SES/SNS (AWS Query protocol: POST / with Action=). The stolen-key recon
+  // crowd lands here when they source our .env or copy our .aws profile. Runs
+  // BEFORE the LLM block: it reads the body, and a Workers body can be read once,
+  // so it must match first. It only consumes the body for a urlencoded POST to '/'
+  // (returns null untouched otherwise), so nothing else loses its body.
+  if (request.method === 'POST') {
+    const m = hitMeta(request);
+    const aq = await handleAwsQuery(request, env, m);
+    if (aq) {
+      const full = { host, client: m.ua, ...m, ...aq.row };
+      waitUntil(logApiHit(env, full));
+      waitUntil(forwardHit(env, { host, beacon: beaconKey, path: aq.row.path, method: 'POST', status: aq.row.status, ip: m.ip, country: m.country, asn: m.asn, as_org: m.as_org, ua: m.ua }));
+      if (aq.alert && beaconKey !== 'apex') waitUntil(pingBeacon(env, beaconKey, m));
+      return aq.response;
+    }
+  }
+
   // LLM completion endpoints on ANY host (apex included): a key-checker that
   // tries a harvested key here lands in the prompt trap. handleLlm returns null
   // for non-LLM POSTs without reading the body, so other handlers still can.
@@ -275,21 +292,6 @@ export async function onRequest(ctx) {
       waitUntil(forwardHit(env, { host, beacon: beaconKey, path: llm.row.path + ' [llm]', method: 'POST', status: llm.row.status, ip: m.ip, country: m.country, asn: m.asn, as_org: m.as_org, ua: m.ua }));
       if (llm.alert && beaconKey !== 'apex') waitUntil(pingBeacon(env, beaconKey, m));
       return llm.response;
-    }
-  }
-
-  // Fake SES/SNS (AWS Query protocol: POST / with Action=). The stolen-key recon
-  // crowd lands here when they source our .env or copy our .aws profile. Matches
-  // only a urlencoded POST to '/', so nothing else on the apex/API needs the body.
-  if (request.method === 'POST') {
-    const m = hitMeta(request);
-    const aq = await handleAwsQuery(request, env, m);
-    if (aq) {
-      const full = { host, client: m.ua, ...m, ...aq.row };
-      waitUntil(logApiHit(env, full));
-      waitUntil(forwardHit(env, { host, beacon: beaconKey, path: aq.row.path, method: 'POST', status: aq.row.status, ip: m.ip, country: m.country, asn: m.asn, as_org: m.as_org, ua: m.ua }));
-      if (aq.alert && beaconKey !== 'apex') waitUntil(pingBeacon(env, beaconKey, m));
-      return aq.response;
     }
   }
 
